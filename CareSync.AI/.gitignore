@@ -1,0 +1,15 @@
+# Virtual Environment
+venv/
+.venv/
+env/
+
+# Python caching
+__pycache__/
+*.pyc
+
+# Environment variables / Secrets
+.env
+
+# Local Databases (if using SQLite)
+*.sqlite3
+*.db
