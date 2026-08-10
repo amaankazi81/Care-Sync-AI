@@ -1,27 +1,88 @@
-from collections import defaultdict
+import json
+from typing import List, Dict, Any
 
-patient_memory = defaultdict(list)
+from redis.exceptions import RedisError
+
+from app.services.redis_service import redis_client
 
 
 class PatientMemory:
 
-    @staticmethod
-    def add(patient_id: str, role: str, content: str):
+    MEMORY_DURATION = 3600  # 1 hour
 
-        patient_memory[patient_id].append({
+    @staticmethod
+    def _generate_key(patient_id: str) -> str:
+        return f"patient_memory:{patient_id}"
+
+    @classmethod
+    def history(
+        cls,
+        patient_id: str
+    ) -> List[Dict[str, Any]]:
+
+        key = cls._generate_key(patient_id)
+
+        try:
+
+            value = redis_client.get(key)
+
+            if value is None:
+                return []
+
+            return json.loads(value)
+
+        except (RedisError, json.JSONDecodeError):
+
+            return []
+
+    @classmethod
+    def add(
+        cls,
+        patient_id: str,
+        role: str,
+        content: str
+    ) -> bool:
+
+        history = cls.history(patient_id)
+
+        history.append({
             "role": role,
             "content": content
         })
 
-        # Keep only last 12 messages
-        patient_memory[patient_id] = patient_memory[patient_id][-12:]
+        # Keep only recent 20 messages
+        history = history[-20:]
 
-    @staticmethod
-    def history(patient_id: str):
+        key = cls._generate_key(patient_id)
 
-        return patient_memory.get(patient_id, [])
+        try:
 
-    @staticmethod
-    def clear(patient_id: str):
+            redis_client.setex(
+                key,
+                cls.MEMORY_DURATION,
+                json.dumps(history)
+            )
 
-        patient_memory.pop(patient_id, None)
+            return True
+
+        except RedisError:
+
+            return False
+
+    @classmethod
+    def clear(
+        cls,
+        patient_id: str
+    ) -> bool:
+
+        key = cls._generate_key(patient_id)
+
+        try:
+
+            redis_client.delete(key)
+
+            return True
+
+        except RedisError:
+
+            return False

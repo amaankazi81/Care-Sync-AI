@@ -1,7 +1,5 @@
 from fastapi import FastAPI
 
-from app.api.test import router as test_router
-from app.api.chat import router as chat_router
 from app.api.schema import router as schema_router
 from app.api.sql import router as sql_router
 from app.api.upload import router as upload_router
@@ -13,8 +11,6 @@ app = FastAPI(
     version="1.0.0"
 )
 
-app.include_router(test_router)
-app.include_router(chat_router)
 app.include_router(schema_router)
 app.include_router(sql_router)
 app.include_router(upload_router)
