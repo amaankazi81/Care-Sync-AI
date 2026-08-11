@@ -482,10 +482,15 @@ http://localhost:4028
 Service	URL
 
 Frontend	http://localhost:4028
+
 Spring Boot Backend	http://localhost:8080
+
 ASP.NET Business API	http://localhost:5036
+
 FastAPI AI Backend	http://127.0.0.1:8000
+
 FastAPI Swagger	http://127.0.0.1:8000/docs
+
 MySQL	localhost:3306
 
 ---
@@ -596,7 +601,7 @@ Username is correct
 Password is correct
 MySQL is running on port 3306
 
-📸 Screenshots
+# 📸 Screenshots
 
 Add screenshots of the application here.
 
