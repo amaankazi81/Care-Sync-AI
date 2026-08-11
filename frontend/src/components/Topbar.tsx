@@ -1,28 +1,47 @@
 'use client';
 
-import React, { useState } from 'react';
-import Link from 'next/link';
+import React, {
+  useEffect,
+  useState,
+} from 'react';
+
 import { useRouter } from 'next/navigation';
 
 import {
   Bell,
-  Search,
   ChevronDown,
   Menu,
   X,
   UserCircle,
   LogOut,
   Shield,
+  HeartPulse,
 } from 'lucide-react';
 
-import { useAuth } from '@/context/AuthContext';
-import { logout } from '@/utils/auth';
+import {
+  getStoredUser,
+  logout,
+} from '@/utils/auth';
 
 interface TopbarProps {
-  role: 'admin' | 'doctor' | 'patient' | 'receptionist';
+  role:
+  | 'admin'
+  | 'doctor'
+  | 'patient'
+  | 'receptionist';
+
   sidebarCollapsed: boolean;
+
   onMobileMenuToggle: () => void;
+
   mobileMenuOpen: boolean;
+}
+
+interface TopbarUser {
+  username: string;
+  firstName: string;
+  lastName: string;
+  role: string;
 }
 
 const notifications = [
@@ -42,81 +61,256 @@ export default function Topbar({
 }: TopbarProps) {
   const router = useRouter();
 
-  const { user } = useAuth();
+  /*
+   * ----------------------------------------------------------
+   * USER STATE
+   * ----------------------------------------------------------
+   *
+   * We deliberately keep a local copy of the logged-in user.
+   * This prevents the Topbar from displaying a stale user
+   * after switching accounts.
+   */
 
-  const [notifOpen, setNotifOpen] = useState(false);
-  const [profileOpen, setProfileOpen] = useState(false);
-  const [searchFocused, setSearchFocused] = useState(false);
+  const [user, setUser] =
+    useState<TopbarUser | null>(null);
 
-  const unreadCount = notifications.filter(
-    (item) => item.unread
-  ).length;
+  const [notifOpen, setNotifOpen] =
+    useState(false);
 
-  // --------------------------------------------------
-  // DISPLAY NAME
-  // --------------------------------------------------
+  const [profileOpen, setProfileOpen] =
+    useState(false);
 
-  const displayName =
-    user?.role === 'DOCTOR'
-      ? `Dr. ${user.firstName} ${user.lastName}`
-      : `${user?.firstName ?? ''} ${user?.lastName ?? ''}`;
+  const [searchFocused, setSearchFocused] =
+    useState(false);
 
-  // --------------------------------------------------
-  // DESIGNATION
-  // --------------------------------------------------
+  /* ==========================================================
+     LOAD USER
+  ========================================================== */
 
-  const designation = (() => {
-    switch (user?.role) {
-      case 'ADMIN':
-        return 'Hospital Administrator';
+  const loadUser = () => {
+    const storedUser =
+      getStoredUser();
 
-      case 'DOCTOR':
-        return 'Doctor';
-
-      case 'PATIENT':
-        return 'Patient';
-
-      case 'RECEPTIONIST':
-        return 'Receptionist';
-
-      default:
-        return '';
+    if (!storedUser) {
+      setUser(null);
+      return;
     }
-  })();
 
-  // --------------------------------------------------
-  // USER INITIALS
-  // --------------------------------------------------
+    setUser({
+      username:
+        storedUser.username,
 
-  const initials =
-    `${user?.firstName?.charAt(0) ?? ''}` +
-    `${user?.lastName?.charAt(0) ?? ''}`;
+      firstName:
+        storedUser.firstName,
 
-  // --------------------------------------------------
-  // LOGOUT
-  // --------------------------------------------------
+      lastName:
+        storedUser.lastName,
 
-  const handleLogout = () => {
-    // Close dropdowns first
-    setProfileOpen(false);
-    setNotifOpen(false);
-
-    // Clear authentication data
-    logout();
-
-    // Redirect to login page
-    router.replace('/login');
+      role:
+        storedUser.role,
+    });
   };
 
-  // --------------------------------------------------
-  // MY PROFILE
-  // --------------------------------------------------
+  /* ==========================================================
+     INITIAL USER LOAD
+  ========================================================== */
 
-  const handleProfileClick = () => {
-    // Close dropdown
+  useEffect(() => {
+    loadUser();
+  }, []);
+
+  /* ==========================================================
+     AUTH CHANGE LISTENER
+  ========================================================== */
+
+  useEffect(() => {
+    const handleAuthChange =
+      () => {
+        /*
+         * Immediately reload the current
+         * logged-in user.
+         */
+
+        loadUser();
+
+        /*
+         * Close old account's open menus.
+         */
+
+        setProfileOpen(false);
+
+        setNotifOpen(false);
+      };
+
+    window.addEventListener(
+      'auth-change',
+      handleAuthChange
+    );
+
+    return () => {
+      window.removeEventListener(
+        'auth-change',
+        handleAuthChange
+      );
+    };
+  }, []);
+
+  /* ==========================================================
+     STORAGE CHANGE LISTENER
+  ========================================================== */
+
+  useEffect(() => {
+    const handleStorageChange =
+      () => {
+        loadUser();
+      };
+
+    window.addEventListener(
+      'storage',
+      handleStorageChange
+    );
+
+    return () => {
+      window.removeEventListener(
+        'storage',
+        handleStorageChange
+      );
+    };
+  }, []);
+
+  /* ==========================================================
+     PAGE SHOW
+  ========================================================== */
+
+  useEffect(() => {
+    const handlePageShow =
+      () => {
+        loadUser();
+      };
+
+    window.addEventListener(
+      'pageshow',
+      handlePageShow
+    );
+
+    return () => {
+      window.removeEventListener(
+        'pageshow',
+        handlePageShow
+      );
+    };
+  }, []);
+
+  /* ==========================================================
+     NOTIFICATION COUNT
+  ========================================================== */
+
+  const unreadCount =
+    notifications.filter(
+      (item) =>
+        item.unread
+    ).length;
+
+  /* ==========================================================
+     DISPLAY NAME
+  ========================================================== */
+
+  const firstName =
+    user?.firstName?.trim() ?? '';
+
+  const lastName =
+    user?.lastName?.trim() ?? '';
+
+  const displayName =
+    user?.role?.toUpperCase() ===
+      'DOCTOR'
+      ? `Dr. ${firstName} ${lastName}`.trim()
+      : `${firstName} ${lastName}`.trim();
+
+  /*
+   * If first/last name is not available,
+   * show username instead.
+   */
+
+  const safeDisplayName =
+    displayName ||
+    user?.username ||
+    'User';
+
+  /* ==========================================================
+     DESIGNATION
+  ========================================================== */
+
+  const designation =
+    (() => {
+      switch (
+      user?.role?.toUpperCase()
+      ) {
+        case 'ADMIN':
+          return 'Hospital Administrator';
+
+        case 'DOCTOR':
+          return 'Doctor';
+
+        case 'PATIENT':
+          return 'Patient';
+
+        case 'RECEPTIONIST':
+          return 'Receptionist';
+
+        default:
+          return '';
+      }
+    })();
+
+  /* ==========================================================
+     INITIALS
+  ========================================================== */
+
+  const initials =
+    `${firstName.charAt(0)}${lastName.charAt(0)}`
+      .toUpperCase();
+
+  const safeInitials =
+    initials ||
+    user?.username
+      ?.charAt(0)
+      .toUpperCase() ||
+    'U';
+
+  /* ==========================================================
+     LOGOUT
+  ========================================================== */
+
+  const handleLogout = () => {
     setProfileOpen(false);
 
-    // Navigate to common profile page
+    setNotifOpen(false);
+
+    /*
+     * logout() clears all authentication information
+     * and dispatches auth-change.
+     */
+
+    logout();
+
+    /*
+     * Use a hard navigation to guarantee that the
+     * previous dashboard cannot remain in the App Router
+     * client cache.
+     */
+
+    window.location.href =
+      '/login';
+  };
+
+  /* ==========================================================
+     MY PROFILE
+  ========================================================== */
+
+  const handleProfileClick = () => {
+    setProfileOpen(false);
+
     router.push('/profile');
   };
 
@@ -124,7 +318,7 @@ export default function Topbar({
     <>
       {/* ==================================================
           TOPBAR
-          ================================================== */}
+      ================================================== */}
 
       <header
         className="
@@ -143,18 +337,22 @@ export default function Topbar({
           gap-4
         "
         style={{
-          paddingLeft: `calc(${
-            sidebarCollapsed ? '68px' : '260px'
-          } + 1rem)`,
+          paddingLeft:
+            `calc(${sidebarCollapsed
+              ? '68px'
+              : '260px'
+            } + 1rem)`,
         }}
       >
         {/* ==================================================
             MOBILE MENU
-            ================================================== */}
+        ================================================== */}
 
         <button
           type="button"
-          onClick={onMobileMenuToggle}
+          onClick={
+            onMobileMenuToggle
+          }
           className="
             lg:hidden
             flex
@@ -176,60 +374,68 @@ export default function Topbar({
         </button>
 
         {/* ==================================================
-            SEARCH
-            ================================================== */}
+    APPLICATION BRAND
+    ================================================== */}
 
-        <div
-          className={`
-            relative
-            flex-1
-            max-w-md
-            transition-all
-            duration-200
-            ${searchFocused ? 'max-w-lg' : ''}
-          `}
-        >
-          <Search
-            size={16}
-            className="
-              absolute
-              left-3
-              top-1/2
-              -translate-y-1/2
-              text-slate-400
-            "
-          />
+        <div className="flex items-center gap-3 min-w-fit">
 
-          <input
-            type="text"
-            placeholder="Search patients, doctors, appointments..."
-            onFocus={() => setSearchFocused(true)}
-            onBlur={() => setSearchFocused(false)}
+          {/* Logo */}
+
+          <div
             className="
-              w-full
-              rounded-lg
-              border
-              border-slate-300
-              bg-white
-              py-2
-              pl-9
-              pr-4
-              focus:outline-none
-              focus:ring-2
-              focus:ring-cyan-600
-            "
-          />
+      flex
+      h-10
+      w-10
+      items-center
+      justify-center
+      rounded-xl
+      bg-cyan-600
+      text-white
+      shadow-sm
+    "
+          >
+            <HeartPulse size={22} strokeWidth={2.3} />
+          </div>
+
+          {/* Brand Name */}
+
+          <div className="hidden sm:block">
+
+            <p
+              className="
+        text-base
+        font-bold
+        leading-tight
+        text-slate-800
+      "
+            >
+              CareSync AI
+            </p>
+
+            <p
+              className="
+        text-[10px]
+        font-medium
+        leading-tight
+        text-slate-700
+      "
+            >
+              Hospital Management System
+            </p>
+
+          </div>
+
         </div>
 
         {/* ==================================================
             RIGHT SIDE
-            ================================================== */}
+        ================================================== */}
 
         <div className="ml-auto flex items-center gap-3">
 
           {/* ==================================================
               ROLE BADGE
-              ================================================== */}
+          ================================================== */}
 
           <div
             className="
@@ -263,15 +469,21 @@ export default function Topbar({
 
           {/* ==================================================
               NOTIFICATIONS
-              ================================================== */}
+          ================================================== */}
 
           <div className="relative">
 
             <button
               type="button"
               onClick={() => {
-                setNotifOpen((previous) => !previous);
-                setProfileOpen(false);
+                setNotifOpen(
+                  (previous) =>
+                    !previous
+                );
+
+                setProfileOpen(
+                  false
+                );
               }}
               className="
                 relative
@@ -288,9 +500,10 @@ export default function Topbar({
             >
               <Bell size={18} />
 
-              {unreadCount > 0 && (
-                <span
-                  className="
+              {unreadCount >
+                0 && (
+                  <span
+                    className="
                     absolute
                     right-1
                     top-1
@@ -299,11 +512,9 @@ export default function Topbar({
                     rounded-full
                     bg-red-500
                   "
-                />
-              )}
+                  />
+                )}
             </button>
-
-            {/* Notification dropdown */}
 
             {notifOpen && (
               <div
@@ -327,44 +538,52 @@ export default function Topbar({
                 </div>
 
                 <div>
-                  {notifications.map((item) => (
-                    <div
-                      key={item.id}
-                      className="
-                        border-b
-                        last:border-b-0
-                        px-4
-                        py-4
-                        hover:bg-slate-50
-                      "
-                    >
-                      <p className="text-sm text-slate-700">
-                        {item.message}
-                      </p>
-
-                      {item.time && (
-                        <p className="mt-1 text-xs text-slate-400">
-                          {item.time}
+                  {notifications.map(
+                    (item) => (
+                      <div
+                        key={item.id}
+                        className="
+                          border-b
+                          last:border-b-0
+                          px-4
+                          py-4
+                          hover:bg-slate-50
+                        "
+                      >
+                        <p className="text-sm text-slate-700">
+                          {item.message}
                         </p>
-                      )}
-                    </div>
-                  ))}
+
+                        {item.time && (
+                          <p className="mt-1 text-xs text-slate-400">
+                            {item.time}
+                          </p>
+                        )}
+                      </div>
+                    )
+                  )}
                 </div>
               </div>
             )}
           </div>
 
           {/* ==================================================
-              PROFILE DROPDOWN
-              ================================================== */}
+              PROFILE
+          ================================================== */}
 
           <div className="relative">
 
             <button
               type="button"
               onClick={() => {
-                setProfileOpen((previous) => !previous);
-                setNotifOpen(false);
+                setProfileOpen(
+                  (previous) =>
+                    !previous
+                );
+
+                setNotifOpen(
+                  false
+                );
               }}
               className="
                 flex
@@ -376,9 +595,12 @@ export default function Topbar({
                 hover:bg-slate-100
                 transition
               "
-              aria-expanded={profileOpen}
+              aria-expanded={
+                profileOpen
+              }
               aria-haspopup="menu"
             >
+
               {/* Avatar */}
 
               <div
@@ -394,19 +616,21 @@ export default function Topbar({
                   font-bold
                 "
               >
-                {initials}
+                {safeInitials}
               </div>
 
               {/* Name */}
 
               <div className="hidden md:block text-left">
+
                 <p className="text-sm font-semibold text-slate-800">
-                  {displayName}
+                  {safeDisplayName}
                 </p>
 
                 <p className="text-xs text-slate-500">
                   {designation}
                 </p>
+
               </div>
 
               {/* Arrow */}
@@ -415,14 +639,17 @@ export default function Topbar({
                 size={16}
                 className={`
                   transition-transform
-                  ${profileOpen ? 'rotate-180' : ''}
+                  ${profileOpen
+                    ? 'rotate-180'
+                    : ''
+                  }
                 `}
               />
             </button>
 
             {/* ==================================================
-                PROFILE DROPDOWN MENU
-                ================================================== */}
+                PROFILE DROPDOWN
+            ================================================== */}
 
             {profileOpen && (
               <div
@@ -441,29 +668,36 @@ export default function Topbar({
                   overflow-hidden
                 "
               >
+
                 {/* User information */}
 
                 <div className="border-b px-4 py-4">
+
                   <p className="font-semibold text-slate-800">
-                    {displayName}
+                    {safeDisplayName}
                   </p>
 
                   <p className="mt-1 text-xs text-slate-500">
                     {designation}
                   </p>
-                </div>
 
-                {/* Menu */}
+                  {user?.username && (
+                    <p className="mt-1 text-xs text-slate-400">
+                      @{user.username}
+                    </p>
+                  )}
+
+                </div>
 
                 <div className="py-2">
 
-                  {/* ==================================================
-                      MY PROFILE
-                      ================================================== */}
+                  {/* My Profile */}
 
                   <button
                     type="button"
-                    onClick={handleProfileClick}
+                    onClick={
+                      handleProfileClick
+                    }
                     className="
                       flex
                       w-full
@@ -477,24 +711,24 @@ export default function Topbar({
                       transition
                     "
                   >
-                    <UserCircle size={18} />
+                    <UserCircle
+                      size={18}
+                    />
 
                     <span>
                       My Profile
                     </span>
                   </button>
 
-                  {/* Divider */}
-
                   <hr className="my-2" />
 
-                  {/* ==================================================
-                      LOGOUT
-                      ================================================== */}
+                  {/* Logout */}
 
                   <button
                     type="button"
-                    onClick={handleLogout}
+                    onClick={
+                      handleLogout
+                    }
                     className="
                       flex
                       w-full
@@ -508,7 +742,9 @@ export default function Topbar({
                       transition
                     "
                   >
-                    <LogOut size={18} />
+                    <LogOut
+                      size={18}
+                    />
 
                     <span>
                       Logout
@@ -524,22 +760,23 @@ export default function Topbar({
 
       {/* ==================================================
           BACKDROP
-          
-          IMPORTANT:
-          This backdrop is BEHIND the header/dropdowns.
-          The previous z-index setup was causing the backdrop
-          to sit on top of the dropdown and block clicks.
-          ================================================== */}
+      ================================================== */}
 
-      {(notifOpen || profileOpen) && (
-        <div
-          className="fixed inset-0 z-40"
-          onClick={() => {
-            setNotifOpen(false);
-            setProfileOpen(false);
-          }}
-        />
-      )}
+      {(notifOpen ||
+        profileOpen) && (
+          <div
+            className="
+            fixed
+            inset-0
+            z-40
+          "
+            onClick={() => {
+              setNotifOpen(false);
+
+              setProfileOpen(false);
+            }}
+          />
+        )}
     </>
   );
 }

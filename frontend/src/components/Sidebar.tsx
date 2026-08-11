@@ -2,8 +2,7 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
-
+import { usePathname } from 'next/navigation';
 import { logout } from '@/utils/auth';
 import AppLogo from '@/components/ui/AppLogo';
 
@@ -14,7 +13,6 @@ import {
   UserPlus,
   CalendarDays,
   Building2,
-  BarChart3,
   LogOut,
   ChevronLeft,
   ChevronRight,
@@ -24,6 +22,7 @@ import {
   HeartPulse,
   CreditCard,
   UserCircle,
+  Brain,
 } from 'lucide-react';
 
 interface NavItem {
@@ -36,10 +35,22 @@ interface NavItem {
 }
 
 interface SidebarProps {
-  role: 'admin' | 'doctor' | 'patient' | 'receptionist';
+  role:
+    | 'admin'
+    | 'doctor'
+    | 'patient'
+    | 'receptionist';
+
   collapsed: boolean;
   onToggle: () => void;
 }
+
+const dashboardRoutes = [
+  '/admin-dashboard',
+  '/doctor-dashboard',
+  '/patient-dashboard',
+  '/receptionist-dashboard',
+];
 
 /* =========================================================
    ADMIN NAVIGATION
@@ -53,7 +64,6 @@ const adminNav: NavItem[] = [
     icon: LayoutDashboard,
     group: 'main',
   },
-
   {
     id: 'nav-admin-doctors',
     label: 'Doctors',
@@ -61,7 +71,6 @@ const adminNav: NavItem[] = [
     icon: Stethoscope,
     group: 'main',
   },
-
   {
     id: 'nav-admin-patients',
     label: 'Patients',
@@ -69,7 +78,6 @@ const adminNav: NavItem[] = [
     icon: Users,
     group: 'main',
   },
-
   {
     id: 'nav-admin-appointments',
     label: 'Appointments',
@@ -77,7 +85,6 @@ const adminNav: NavItem[] = [
     icon: CalendarDays,
     group: 'main',
   },
-
   {
     id: 'nav-admin-departments',
     label: 'Departments',
@@ -86,11 +93,12 @@ const adminNav: NavItem[] = [
     group: 'main',
   },
 
+  // AI
   {
-    id: 'nav-admin-reports',
-    label: 'Reports',
-    href: '/reports',
-    icon: BarChart3,
+    id: 'nav-admin-ai-analytics',
+    label: 'AI Analytics',
+    href: '/ai-analytics',
+    icon: Brain,
     group: 'analytics',
   },
 
@@ -115,7 +123,6 @@ const doctorNav: NavItem[] = [
     icon: LayoutDashboard,
     group: 'main',
   },
-
   {
     id: 'nav-doctor-appointments',
     label: 'My Appointments',
@@ -123,7 +130,6 @@ const doctorNav: NavItem[] = [
     icon: CalendarDays,
     group: 'main',
   },
-
   {
     id: 'nav-doctor-patients',
     label: 'My Patients',
@@ -131,7 +137,6 @@ const doctorNav: NavItem[] = [
     icon: Users,
     group: 'main',
   },
-
   {
     id: 'nav-doctor-prescriptions',
     label: 'Prescriptions',
@@ -139,13 +144,21 @@ const doctorNav: NavItem[] = [
     icon: FileText,
     group: 'main',
   },
-
   {
     id: 'nav-doctor-availability',
     label: 'Availability',
     href: '/doctor-dashboard/availability',
     icon: ClipboardList,
     group: 'main',
+  },
+
+  // AI
+  {
+    id: 'nav-doctor-ai-analytics',
+    label: 'AI Analytics',
+    href: '/ai-analytics',
+    icon: Brain,
+    group: 'analytics',
   },
 
   {
@@ -169,7 +182,6 @@ const patientNav: NavItem[] = [
     icon: LayoutDashboard,
     group: 'main',
   },
-
   {
     id: 'nav-patient-book',
     label: 'Book Appointment',
@@ -177,7 +189,6 @@ const patientNav: NavItem[] = [
     icon: CalendarDays,
     group: 'main',
   },
-
   {
     id: 'nav-patient-history',
     label: 'Appointment History',
@@ -185,7 +196,6 @@ const patientNav: NavItem[] = [
     icon: ClipboardList,
     group: 'main',
   },
-
   {
     id: 'nav-patient-records',
     label: 'Medical Records',
@@ -193,7 +203,6 @@ const patientNav: NavItem[] = [
     icon: FileText,
     group: 'health',
   },
-
   {
     id: 'nav-patient-prescriptions',
     label: 'Prescriptions',
@@ -201,12 +210,20 @@ const patientNav: NavItem[] = [
     icon: HeartPulse,
     group: 'health',
   },
-
   {
     id: 'nav-patient-billing',
     label: 'Billing',
     href: '/patient-dashboard/billing',
     icon: CreditCard,
+    group: 'health',
+  },
+
+  // AI
+  {
+    id: 'nav-patient-ai-assistant',
+    label: 'AI Medical Assistant',
+    href: '/ai-assistant',
+    icon: Brain,
     group: 'health',
   },
 
@@ -231,7 +248,6 @@ const receptionistNav: NavItem[] = [
     icon: LayoutDashboard,
     group: 'main',
   },
-
   {
     id: 'nav-reception-patients',
     label: 'Patients',
@@ -239,7 +255,6 @@ const receptionistNav: NavItem[] = [
     icon: Users,
     group: 'main',
   },
-
   {
     id: 'nav-reception-appointments',
     label: 'Appointments',
@@ -247,7 +262,6 @@ const receptionistNav: NavItem[] = [
     icon: CalendarDays,
     group: 'main',
   },
-
   {
     id: 'nav-reception-doctor-schedule',
     label: 'Doctor Schedule',
@@ -255,7 +269,6 @@ const receptionistNav: NavItem[] = [
     icon: Stethoscope,
     group: 'main',
   },
-
   {
     id: 'nav-reception-billing',
     label: 'Billing',
@@ -263,13 +276,21 @@ const receptionistNav: NavItem[] = [
     icon: CreditCard,
     group: 'main',
   },
-
   {
     id: 'nav-reception-register-patient',
     label: 'Register Patient',
     href: '/receptionist-dashboard/register',
     icon: UserPlus,
     group: 'main',
+  },
+
+  // AI
+  {
+    id: 'nav-reception-ai-analytics',
+    label: 'AI Analytics',
+    href: '/ai-analytics',
+    icon: Brain,
+    group: 'analytics',
   },
 
   {
@@ -316,11 +337,10 @@ export default function Sidebar({
   onToggle,
 }: SidebarProps) {
   const pathname = usePathname();
-  const router = useRouter();
 
   const handleLogout = () => {
     logout();
-    router.replace('/login');
+    window.location.href = '/login';
   };
 
   const navItems = navByRole[role] || adminNav;
@@ -345,29 +365,71 @@ export default function Sidebar({
       return pathname === '/';
     }
 
-    return pathname === href || pathname.startsWith(`${href}/`);
+    if (dashboardRoutes.includes(href)) {
+      return pathname === href;
+    }
+
+    return (
+      pathname === href ||
+      pathname.startsWith(`${href}/`)
+    );
+  };
+
+  const handleNavigation = (
+    event: React.MouseEvent<HTMLAnchorElement>,
+    item: NavItem
+  ) => {
+    const isDashboard = dashboardRoutes.includes(item.href);
+
+    if (isDashboard) {
+      event.preventDefault();
+      window.location.assign(item.href);
+      return;
+    }
+
+    if (window.innerWidth < 1024) {
+      // AppLayout handles mobile sidebar closing.
+    }
   };
 
   return (
     <aside
       className={`
-        fixed left-0 top-0 h-full
-        bg-card border-r border-border
-        z-40 flex flex-col
-        sidebar-transition shadow-sidebar
-        ${collapsed ? 'w-[68px]' : 'w-[260px]'}
+        fixed
+        left-0
+        top-0
+        h-full
+        bg-card
+        border-r
+        border-border
+        z-40
+        flex
+        flex-col
+        sidebar-transition
+        shadow-sidebar
+        ${
+          collapsed
+            ? 'w-[68px]'
+            : 'w-[260px]'
+        }
       `}
     >
-      {/* =================================================
-          LOGO
-      ================================================= */}
+      {/* LOGO */}
 
       <div
         className={`
-          flex items-center h-16
-          border-b border-border
-          px-4 flex-shrink-0
-          ${collapsed ? 'justify-center' : 'justify-between'}
+          flex
+          items-center
+          h-16
+          border-b
+          border-border
+          px-4
+          flex-shrink-0
+          ${
+            collapsed
+              ? 'justify-center'
+              : 'justify-between'
+          }
         `}
       >
         {!collapsed && (
@@ -386,13 +448,22 @@ export default function Sidebar({
           type="button"
           onClick={onToggle}
           className={`
-            flex items-center justify-center
-            w-7 h-7 rounded-full
-            border border-border
+            flex
+            items-center
+            justify-center
+            w-7
+            h-7
+            rounded-full
+            border
+            border-border
             bg-background
             hover:bg-muted
             transition-colors
-            ${collapsed ? 'mx-auto' : ''}
+            ${
+              collapsed
+                ? 'mx-auto'
+                : ''
+            }
           `}
           aria-label={
             collapsed
@@ -408,31 +479,37 @@ export default function Sidebar({
         </button>
       </div>
 
-      {/* =================================================
-          ROLE BADGE
-      ================================================= */}
+      {/* ROLE BADGE */}
 
       {!collapsed && (
         <div className="px-4 py-3 border-b border-border">
           <span
             className="
-              inline-flex items-center gap-2
-              px-3 py-1 rounded-full
-              text-xs font-semibold
-              bg-cyan-50 text-cyan-700
+              inline-flex
+              items-center
+              gap-2
+              px-3
+              py-1
+              rounded-full
+              text-xs
+              font-semibold
+              bg-cyan-50
+              text-cyan-700
             "
           >
             <UserRound size={12} />
 
-            {role.charAt(0).toUpperCase() + role.slice(1)}
-            {' '}Portal
+            {role.charAt(0).toUpperCase() +
+              role.slice(1)}
+
+            {' '}
+
+            Portal
           </span>
         </div>
       )}
 
-      {/* =================================================
-          NAVIGATION
-      ================================================= */}
+      {/* NAVIGATION */}
 
       <nav className="flex-1 overflow-y-auto py-3">
         {Object.entries(groups).map(
@@ -444,7 +521,8 @@ export default function Sidebar({
               {!collapsed && (
                 <p
                   className="
-                    px-4 py-2
+                    px-4
+                    py-2
                     text-[10px]
                     uppercase
                     tracking-widest
@@ -458,27 +536,43 @@ export default function Sidebar({
 
               {items.map((item) => {
                 const Icon = item.icon;
-
-                const active = isActive(item.href);
+                const active = isActive(
+                  item.href
+                );
 
                 return (
                   <Link
                     key={item.id}
                     href={item.href}
+                    prefetch={
+                      !dashboardRoutes.includes(
+                        item.href
+                      )
+                    }
+                    onClick={(event) =>
+                      handleNavigation(
+                        event,
+                        item
+                      )
+                    }
                     className={`
-                      group relative
-                      flex items-center gap-3
-                      mx-2 px-3 py-2.5
+                      group
+                      relative
+                      flex
+                      items-center
+                      gap-3
+                      mx-2
+                      px-3
+                      py-2.5
                       rounded-lg
-                      text-sm font-medium
+                      text-sm
+                      font-medium
                       transition-all
-
                       ${
                         active
                           ? 'bg-cyan-100 text-cyan-700'
                           : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                       }
-
                       ${
                         collapsed
                           ? 'justify-center px-0 mx-auto w-11'
@@ -498,11 +592,15 @@ export default function Sidebar({
                     )}
 
                     {!collapsed &&
-                      item.badge !== undefined && (
+                      item.badge !==
+                        undefined && (
                         <span
                           className="
-                            w-5 h-5
-                            flex items-center justify-center
+                            w-5
+                            h-5
+                            flex
+                            items-center
+                            justify-center
                             rounded-full
                             bg-cyan-700
                             text-white
@@ -520,25 +618,28 @@ export default function Sidebar({
         )}
       </nav>
 
-      {/* =================================================
-          LOGOUT
-      ================================================= */}
+      {/* LOGOUT */}
 
       <div className="border-t border-border p-3">
         <button
           type="button"
           onClick={handleLogout}
           className={`
-            group relative
-            flex items-center gap-3
-            w-full px-3 py-2.5
+            group
+            relative
+            flex
+            items-center
+            gap-3
+            w-full
+            px-3
+            py-2.5
             rounded-lg
-            text-sm font-medium
+            text-sm
+            font-medium
             text-muted-foreground
             hover:bg-red-100
             hover:text-red-600
             transition-all
-
             ${
               collapsed
                 ? 'justify-center px-0'
@@ -546,7 +647,9 @@ export default function Sidebar({
             }
           `}
           title={
-            collapsed ? 'Logout' : undefined
+            collapsed
+              ? 'Logout'
+              : undefined
           }
         >
           <LogOut

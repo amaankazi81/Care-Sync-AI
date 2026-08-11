@@ -1,4 +1,8 @@
 import api from '@/lib/api';
+import {
+  saveTokens,
+  saveUserInfo,
+} from '@/utils/auth';
 
 /* ============================================================
    LOGIN
@@ -14,11 +18,11 @@ export interface LoginResponse {
   refreshToken: string | null;
   tokenType: string;
   expiresIn: number;
-
   username: string;
   role: string;
   firstName: string;
   lastName: string;
+  patientId?: string | null;
 }
 
 /* ============================================================
@@ -101,37 +105,71 @@ export interface DepartmentResponse {
 ============================================================ */
 
 const authService = {
-  /* ==========================
+  /* ==========================================================
      LOGIN
-  ========================== */
+  ========================================================== */
 
-  login: async (data: LoginRequest): Promise<LoginResponse> => {
-    const response = await api.post('/auth/login', data);
+  login: async (
+    data: LoginRequest
+  ): Promise<LoginResponse> => {
+    const response = await api.post(
+      '/auth/login',
+      data
+    );
 
-    const loginData: LoginResponse = response.data;
+    const loginData: LoginResponse =
+      response.data;
 
-    localStorage.setItem('accessToken', loginData.accessToken);
+    /*
+     * --------------------------------------------------------
+     * SAVE AUTHENTICATION TOKENS
+     * --------------------------------------------------------
+     */
 
-    if (loginData.refreshToken) {
-      localStorage.setItem(
-        'refreshToken',
-        loginData.refreshToken
+    saveTokens(
+      loginData.accessToken,
+      loginData.refreshToken,
+      loginData.role
+    );
+
+    /*
+     * --------------------------------------------------------
+     * SAVE LOGGED-IN USER INFORMATION
+     *
+     * This is important because Topbar needs to immediately
+     * know which user has logged in after switching accounts.
+     * --------------------------------------------------------
+     */
+
+    saveUserInfo({
+      username: loginData.username,
+      firstName: loginData.firstName,
+      lastName: loginData.lastName,
+      role: loginData.role,
+      patientId: loginData.patientId,
+    });
+
+    /*
+     * --------------------------------------------------------
+     * Notify the rest of the application that authentication
+     * has changed.
+     *
+     * Topbar and AppLayout listen for this event.
+     * --------------------------------------------------------
+     */
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new Event('auth-change')
       );
     }
-
-    localStorage.setItem('role', loginData.role);
-
-    localStorage.setItem(
-      'username',
-      loginData.username
-    );
 
     return loginData;
   },
 
-  /* ==========================
+  /* ==========================================================
      REGISTER
-  ========================== */
+  ========================================================== */
 
   register: async (
     data: RegisterRequest
@@ -144,9 +182,9 @@ const authService = {
     return response.data;
   },
 
-  /* ==========================
+  /* ==========================================================
      FORGOT PASSWORD
-  ========================== */
+  ========================================================== */
 
   forgotPassword: async (
     email: string
@@ -161,9 +199,9 @@ const authService = {
     return response.data;
   },
 
-  /* ==========================
+  /* ==========================================================
      RESET PASSWORD
-  ========================== */
+  ========================================================== */
 
   resetPassword: async (data: {
     token: string;

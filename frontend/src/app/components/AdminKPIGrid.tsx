@@ -1,110 +1,240 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
+
 import MetricCard from '@/components/ui/MetricCard';
 import { MetricCardSkeleton } from '@/components/ui/LoadingSkeleton';
-import { Stethoscope, Users, CalendarCheck, CheckCircle2, XCircle, DollarSign } from 'lucide-react';
 
-const metrics = [
-  {
-    id: 'kpi-doctors',
-    title: 'Total Doctors',
-    value: '148',
-    subtitle: '12 on leave today',
-    trend: { value: 4.2, label: 'vs last month' },
-    icon: <Stethoscope size={20} className="text-primary" />,
-    iconBg: 'bg-primary/10',
-    variant: 'primary' as const,
-    colSpan: 'col-span-1',
-  },
-  {
-    id: 'kpi-patients',
-    title: 'Total Patients',
-    value: '4,821',
-    subtitle: '38 new this week',
-    trend: { value: 6.8, label: 'vs last month' },
-    icon: <Users size={20} className="text-accent" />,
-    iconBg: 'bg-accent/10',
-    variant: 'default' as const,
-    colSpan: 'col-span-1',
-  },
-  {
-    id: 'kpi-today',
-    title: "Today\'s Appointments",
-    value: '94',
-    subtitle: '17 yet to check in',
-    trend: { value: 11.3, label: 'vs yesterday' },
-    icon: <CalendarCheck size={20} className="text-primary" />,
-    iconBg: 'bg-primary/10',
-    variant: 'primary' as const,
-    colSpan: 'col-span-1 md:col-span-2 xl:col-span-1',
-  },
-  {
-    id: 'kpi-completed',
-    title: 'Completed Today',
-    value: '61',
-    subtitle: '64.9% completion rate',
-    trend: { value: 3.1, label: 'vs yesterday' },
-    icon: <CheckCircle2 size={20} className="text-positive" />,
-    iconBg: 'bg-[var(--positive-bg)]',
-    variant: 'positive' as const,
-    colSpan: 'col-span-1',
-  },
-  {
-    id: 'kpi-cancelled',
-    title: 'Cancelled Today',
-    value: '9',
-    subtitle: '9.6% cancellation rate',
-    trend: { value: -2.4, label: 'vs yesterday' },
-    icon: <XCircle size={20} className="text-negative" />,
-    iconBg: 'bg-[var(--negative-bg)]',
-    variant: 'negative' as const,
-    colSpan: 'col-span-1',
-  },
-  {
-    id: 'kpi-revenue',
-    title: "Today\'s Revenue",
-    value: '$12,480',
-    subtitle: 'Billing in progress',
-    trend: { value: 8.7, label: 'vs yesterday' },
-    icon: <DollarSign size={20} className="text-warning" />,
-    iconBg: 'bg-[var(--warning-bg)]',
-    variant: 'warning' as const,
-    colSpan: 'col-span-1',
-  },
-];
+import {
+  Stethoscope,
+  Users,
+  CalendarCheck,
+  CheckCircle2,
+  Clock3,
+  IndianRupee,
+} from 'lucide-react';
+
+import dotnetApi from '@/lib/dotnetApi';
+
+interface DashboardSummary {
+  totalDoctors: number;
+  totalPatients: number;
+  totalDepartments: number;
+  totalAppointments: number;
+  todayAppointments: number;
+  completedAppointments: number;
+  pendingAppointments: number;
+  totalRevenue: number;
+  monthlyRevenue: number;
+}
+
+interface ApiResponse<T> {
+  success: boolean;
+  message: string;
+  data: T;
+}
 
 export default function AdminKPIGrid() {
+  const [summary, setSummary] =
+    useState<DashboardSummary | null>(null);
+
   const [loading, setLoading] = useState(true);
 
+  const [error, setError] = useState(false);
+
   useEffect(() => {
-    // BACKEND INTEGRATION: replace with GET /api/admin/dashboard/kpis
-    const t = setTimeout(() => setLoading(false), 900);
-    return () => clearTimeout(t);
+    let mounted = true;
+
+    const fetchDashboardSummary = async () => {
+      try {
+        setLoading(true);
+        setError(false);
+
+        const response =
+          await dotnetApi.get<ApiResponse<DashboardSummary>>(
+            '/dashboard/summary'
+          );
+
+        if (!mounted) return;
+
+        if (response.data?.success) {
+          setSummary(response.data.data);
+        } else {
+          setError(true);
+        }
+      } catch (err) {
+        console.error(
+          'Dashboard summary error:',
+          err
+        );
+
+        if (mounted) {
+          setError(true);
+        }
+      } finally {
+        if (mounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    fetchDashboardSummary();
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   if (loading) {
     return (
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6 gap-4 mb-6">
-        {Array.from({ length: 6 }).map((_, i) => (
-          <MetricCardSkeleton key={`kpi-skel-${i}`} />
+        {Array.from({ length: 6 }).map((_, index) => (
+          <MetricCardSkeleton
+            key={`kpi-skeleton-${index}`}
+          />
         ))}
       </div>
     );
   }
 
+  if (error || !summary) {
+    return (
+      <div className="bg-card rounded-xl border border-border shadow-card p-5 mb-6">
+        <p className="text-sm font-600 text-negative">
+          Unable to load dashboard statistics.
+        </p>
+
+        <p className="text-xs text-muted-foreground mt-1">
+          Please make sure the backend is running on
+          port 5036.
+        </p>
+      </div>
+    );
+  }
+
+  const formatCurrency = (value: number) => {
+    return new Intl.NumberFormat('en-IN', {
+      style: 'currency',
+      currency: 'INR',
+      maximumFractionDigits: 0,
+    }).format(value);
+  };
+
+  const metrics = [
+    {
+      id: 'kpi-doctors',
+      title: 'Total Doctors',
+      value: String(summary.totalDoctors),
+      subtitle: `${summary.totalDepartments} departments`,
+      icon: (
+        <Stethoscope
+          size={20}
+          className="text-primary"
+        />
+      ),
+      iconBg: 'bg-primary/10',
+      variant: 'primary' as const,
+      colSpan: 'col-span-1',
+    },
+
+    {
+      id: 'kpi-patients',
+      title: 'Total Patients',
+      value: String(summary.totalPatients),
+      subtitle: 'Registered patients',
+      icon: (
+        <Users
+          size={20}
+          className="text-accent"
+        />
+      ),
+      iconBg: 'bg-accent/10',
+      variant: 'default' as const,
+      colSpan: 'col-span-1',
+    },
+
+    {
+      id: 'kpi-today',
+      title: "Today's Appointments",
+      value: String(summary.todayAppointments),
+      subtitle: `${summary.totalAppointments} total appointments`,
+      icon: (
+        <CalendarCheck
+          size={20}
+          className="text-primary"
+        />
+      ),
+      iconBg: 'bg-primary/10',
+      variant: 'primary' as const,
+      colSpan:
+        'col-span-1 md:col-span-2 xl:col-span-1',
+    },
+
+    {
+      id: 'kpi-completed',
+      title: 'Completed',
+      value: String(summary.completedAppointments),
+      subtitle: 'Completed appointments',
+      icon: (
+        <CheckCircle2
+          size={20}
+          className="text-positive"
+        />
+      ),
+      iconBg: 'bg-[var(--positive-bg)]',
+      variant: 'positive' as const,
+      colSpan: 'col-span-1',
+    },
+
+    {
+      id: 'kpi-pending',
+      title: 'Pending',
+      value: String(summary.pendingAppointments),
+      subtitle: 'Appointments pending',
+      icon: (
+        <Clock3
+          size={20}
+          className="text-warning"
+        />
+      ),
+      iconBg: 'bg-[var(--warning-bg)]',
+      variant: 'warning' as const,
+      colSpan: 'col-span-1',
+    },
+
+    {
+      id: 'kpi-revenue',
+      title: 'Total Revenue',
+      value: formatCurrency(summary.totalRevenue),
+      subtitle: `This month: ${formatCurrency(
+        summary.monthlyRevenue
+      )}`,
+      icon: (
+        <IndianRupee
+          size={20}
+          className="text-warning"
+        />
+      ),
+      iconBg: 'bg-[var(--warning-bg)]',
+      variant: 'warning' as const,
+      colSpan: 'col-span-1',
+    },
+  ];
+
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6 gap-4 mb-6">
-      {metrics.map((m) => (
-        <div key={m.id} className={m.colSpan}>
+      {metrics.map((metric) => (
+        <div
+          key={metric.id}
+          className={metric.colSpan}
+        >
           <MetricCard
-            title={m.title}
-            value={m.value}
-            subtitle={m.subtitle}
-            trend={m.trend}
-            icon={m.icon}
-            iconBg={m.iconBg}
-            variant={m.variant}
+            title={metric.title}
+            value={metric.value}
+            subtitle={metric.subtitle}
+            icon={metric.icon}
+            iconBg={metric.iconBg}
+            variant={metric.variant}
             className="h-full"
           />
         </div>

@@ -33,47 +33,335 @@ import {
 
 import { toast } from 'sonner';
 
+/*
+ * ============================================================
+ * BILLING PAGE
+ * ============================================================
+ *
+ * Billing workflow:
+ *
+ * 1. Create Bill
+ * 2. If partially paid:
+ *      -> Record Payment
+ * 3. If remaining amount is paid:
+ *      -> Bill automatically becomes PAID
+ * 4. Fully paid bills:
+ *      -> No payment action
+ *
+ * IMPORTANT:
+ *
+ * The backend may sometimes return inconsistent financial
+ * values such as:
+ *
+ * totalAmount = 0
+ * paidAmount  = 2330
+ * dueAmount   = 0
+ *
+ * In that situation the UI derives:
+ *
+ * displayedTotal = paidAmount + dueAmount
+ *
+ * so that a fully paid bill is not displayed as ₹0.
+ * ============================================================
+ */
+
+/*
+ * ============================================================
+ * NORMALIZED BILL
+ * ============================================================
+ */
+
+interface NormalizedBill {
+  total: number;
+  paid: number;
+  due: number;
+  status: 'PAID' | 'PARTIAL' | 'PENDING' | 'CANCELLED';
+}
+
+/*
+ * ============================================================
+ * CURRENCY HELPER
+ * ============================================================
+ */
+
+function toNumber(
+  value: unknown
+): number {
+  const number =
+    Number(value ?? 0);
+
+  return Number.isFinite(number)
+    ? number
+    : 0;
+}
+
+/*
+ * ============================================================
+ * NORMALIZE BILL FINANCIAL DATA
+ * ============================================================
+ *
+ * This protects the UI from inconsistent backend values.
+ *
+ * Examples:
+ *
+ * total = 0
+ * paid  = 2330
+ * due   = 0
+ *
+ * becomes:
+ *
+ * total = 2330
+ * paid  = 2330
+ * due   = 0
+ *
+ * Another example:
+ *
+ * total = 3000
+ * paid  = 1000
+ * due   = 2000
+ *
+ * remains:
+ *
+ * total = 3000
+ * paid  = 1000
+ * due   = 2000
+ * ============================================================
+ */
+
+function normalizeBill(
+  bill: Billing
+): NormalizedBill {
+  const rawTotal =
+    Math.max(
+      toNumber(
+        bill.totalAmount
+      ),
+      0
+    );
+
+  const paid =
+    Math.max(
+      toNumber(
+        bill.paidAmount
+      ),
+      0
+    );
+
+  const rawDue =
+    Math.max(
+      toNumber(
+        bill.dueAmount
+      ),
+      0
+    );
+
+  /*
+   * If backend total is missing/zero but paid or due exists,
+   * reconstruct the total from paid + due.
+   */
+
+  let total =
+    rawTotal;
+
+  if (
+    total <= 0 &&
+    (paid > 0 ||
+      rawDue > 0)
+  ) {
+    total =
+      paid +
+      rawDue;
+  }
+
+  /*
+   * If backend total is smaller than paid + due,
+   * use paid + due because those two values represent the
+   * actual financial state.
+   */
+
+  if (
+    paid + rawDue >
+    total
+  ) {
+    total =
+      paid + rawDue;
+  }
+
+  /*
+   * Calculate the actual outstanding amount.
+   *
+   * This prevents negative dues.
+   */
+
+  const calculatedDue =
+    Math.max(
+      total - paid,
+      0
+    );
+
+  /*
+   * Prefer the calculated due amount because it is safer
+   * than blindly trusting an inconsistent backend dueAmount.
+   */
+
+  const due =
+    calculatedDue;
+
+  /*
+   * ========================================================
+   * STATUS
+   * ========================================================
+   */
+
+  const backendStatus =
+    String(
+      bill.paymentStatus ??
+        ''
+    )
+      .trim()
+      .toLowerCase();
+
+  if (
+    backendStatus ===
+      'cancelled' ||
+    backendStatus ===
+      'canceled'
+  ) {
+    return {
+      total,
+      paid,
+      due,
+      status:
+        'CANCELLED',
+    };
+  }
+
+  /*
+   * If there is an outstanding amount:
+   *
+   * paid > 0  -> PARTIAL
+   * paid = 0  -> PENDING
+   */
+
+  if (due > 0) {
+    return {
+      total,
+      paid,
+      due,
+      status:
+        paid > 0
+          ? 'PARTIAL'
+          : 'PENDING',
+    };
+  }
+
+  /*
+   * No due amount means the bill is fully settled.
+   */
+
+  if (
+    total > 0 &&
+    paid >= total
+  ) {
+    return {
+      total,
+      paid,
+      due: 0,
+      status: 'PAID',
+    };
+  }
+
+  /*
+   * Fallback.
+   */
+
+  return {
+    total,
+    paid,
+    due,
+    status:
+      paid > 0
+        ? 'PAID'
+        : 'PENDING',
+  };
+}
+
+/*
+ * ============================================================
+ * MAIN PAGE
+ * ============================================================
+ */
+
 export default function ReceptionistBillingPage() {
   const {
     appointments,
-    loading: appointmentsLoading,
+    loading:
+      appointmentsLoading,
   } = useAppointments();
 
-  const [bills, setBills] = useState<Billing[]>([]);
-
-  const [loading, setLoading] = useState(true);
-
-  const [creating, setCreating] = useState(false);
-
   /*
-   * This state is used while recording a payment.
+   * ==========================================================
+   * BILLING STATE
+   * ==========================================================
    */
-  const [recordingPayment, setRecordingPayment] =
+
+  const [bills, setBills] =
+    useState<Billing[]>([]);
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [creating, setCreating] =
     useState(false);
+
+  const [
+    recordingPayment,
+    setRecordingPayment,
+  ] = useState(false);
 
   const [error, setError] =
-    useState<string | null>(null);
-
-  const [showCreateForm, setShowCreateForm] =
-    useState(false);
+    useState<string | null>(
+      null
+    );
 
   /*
    * ==========================================================
-   * RECORD PAYMENT MODAL
+   * CREATE BILL MODAL
    * ==========================================================
    */
 
-  const [showPaymentModal, setShowPaymentModal] =
-    useState(false);
+  const [
+    showCreateForm,
+    setShowCreateForm,
+  ] = useState(false);
 
-  const [selectedBill, setSelectedBill] =
-    useState<Billing | null>(null);
+  /*
+   * ==========================================================
+   * PAYMENT MODAL
+   * ==========================================================
+   */
 
-  const [paymentAmount, setPaymentAmount] =
-    useState('');
+  const [
+    showPaymentModal,
+    setShowPaymentModal,
+  ] = useState(false);
 
-  const [recordPaymentMethod, setRecordPaymentMethod] =
-    useState('UPI');
+  const [
+    selectedBill,
+    setSelectedBill,
+  ] = useState<Billing | null>(
+    null
+  );
+
+  const [
+    paymentAmount,
+    setPaymentAmount,
+  ] = useState('');
+
+  const [
+    recordPaymentMethod,
+    setRecordPaymentMethod,
+  ] = useState('UPI');
 
   /*
    * ==========================================================
@@ -81,26 +369,40 @@ export default function ReceptionistBillingPage() {
    * ==========================================================
    */
 
-  const [appointmentId, setAppointmentId] =
-    useState('');
+  const [
+    appointmentId,
+    setAppointmentId,
+  ] = useState('');
 
-  const [consultationFee, setConsultationFee] =
-    useState('');
+  const [
+    consultationFee,
+    setConsultationFee,
+  ] = useState('');
 
-  const [medicineCharges, setMedicineCharges] =
-    useState('');
+  const [
+    medicineCharges,
+    setMedicineCharges,
+  ] = useState('');
 
-  const [labCharges, setLabCharges] =
-    useState('');
+  const [
+    labCharges,
+    setLabCharges,
+  ] = useState('');
 
-  const [otherCharges, setOtherCharges] =
-    useState('');
+  const [
+    otherCharges,
+    setOtherCharges,
+  ] = useState('');
 
-  const [paidAmount, setPaidAmount] =
-    useState('');
+  const [
+    paidAmount,
+    setPaidAmount,
+  ] = useState('');
 
-  const [paymentMethod, setPaymentMethod] =
-    useState('UPI');
+  const [
+    paymentMethod,
+    setPaymentMethod,
+  ] = useState('UPI');
 
   /*
    * ==========================================================
@@ -108,30 +410,35 @@ export default function ReceptionistBillingPage() {
    * ==========================================================
    */
 
-  const loadBillings = async () => {
-    try {
-      setLoading(true);
-      setError(null);
+  const loadBillings =
+    async () => {
+      try {
+        setLoading(true);
+        setError(null);
 
-      const data =
-        await billingService.getBillings();
+        const data =
+          await billingService.getBillings();
 
-      setBills(data);
-    } catch (err) {
-      console.error(
-        'Failed to load billings:',
-        err
-      );
+        setBills(
+          Array.isArray(data)
+            ? data
+            : []
+        );
+      } catch (err) {
+        console.error(
+          'Failed to load billings:',
+          err
+        );
 
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'Failed to load billing records.'
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
+        setError(
+          err instanceof Error
+            ? err.message
+            : 'Failed to load billing records.'
+        );
+      } finally {
+        setLoading(false);
+      }
+    };
 
   /*
    * ==========================================================
@@ -145,20 +452,41 @@ export default function ReceptionistBillingPage() {
 
   /*
    * ==========================================================
+   * NORMALIZED BILL DATA
+   * ==========================================================
+   */
+
+  const normalizedBills =
+    useMemo(() => {
+      return bills.map(
+        (bill) => ({
+          bill,
+          financial:
+            normalizeBill(
+              bill
+            ),
+        })
+      );
+    }, [bills]);
+
+  /*
+   * ==========================================================
    * TOTAL BILL AMOUNT
    * ==========================================================
    */
 
-  const totalAmount = useMemo(() => {
-    return bills.reduce(
-      (sum, bill) =>
-        sum +
-        Number(
-          bill.totalAmount || 0
-        ),
-      0
-    );
-  }, [bills]);
+  const totalAmount =
+    useMemo(() => {
+      return normalizedBills.reduce(
+        (sum, item) =>
+          sum +
+          item.financial
+            .total,
+        0
+      );
+    }, [
+      normalizedBills,
+    ]);
 
   /*
    * ==========================================================
@@ -166,16 +494,18 @@ export default function ReceptionistBillingPage() {
    * ==========================================================
    */
 
-  const paidAmountTotal = useMemo(() => {
-    return bills.reduce(
-      (sum, bill) =>
-        sum +
-        Number(
-          bill.paidAmount || 0
-        ),
-      0
-    );
-  }, [bills]);
+  const paidAmountTotal =
+    useMemo(() => {
+      return normalizedBills.reduce(
+        (sum, item) =>
+          sum +
+          item.financial
+            .paid,
+        0
+      );
+    }, [
+      normalizedBills,
+    ]);
 
   /*
    * ==========================================================
@@ -183,16 +513,18 @@ export default function ReceptionistBillingPage() {
    * ==========================================================
    */
 
-  const dueAmountTotal = useMemo(() => {
-    return bills.reduce(
-      (sum, bill) =>
-        sum +
-        Number(
-          bill.dueAmount || 0
-        ),
-      0
-    );
-  }, [bills]);
+  const dueAmountTotal =
+    useMemo(() => {
+      return normalizedBills.reduce(
+        (sum, item) =>
+          sum +
+          item.financial
+            .due,
+        0
+      );
+    }, [
+      normalizedBills,
+    ]);
 
   /*
    * ==========================================================
@@ -200,23 +532,25 @@ export default function ReceptionistBillingPage() {
    * ==========================================================
    */
 
-  const cancelledAmount = useMemo(() => {
-    return bills
-      .filter(
-        (bill) =>
-          bill.paymentStatus
-            ?.toLowerCase() ===
-          'cancelled'
-      )
-      .reduce(
-        (sum, bill) =>
-          sum +
-          Number(
-            bill.totalAmount || 0
-          ),
-        0
-      );
-  }, [bills]);
+  const cancelledAmount =
+    useMemo(() => {
+      return normalizedBills
+        .filter(
+          (item) =>
+            item.financial
+              .status ===
+            'CANCELLED'
+        )
+        .reduce(
+          (sum, item) =>
+            sum +
+            item.financial
+              .total,
+          0
+        );
+    }, [
+      normalizedBills,
+    ]);
 
   /*
    * ==========================================================
@@ -257,26 +591,31 @@ export default function ReceptionistBillingPage() {
 
   const formDue =
     Math.max(
-      formTotal - formPaid,
+      formTotal -
+        formPaid,
       0
     );
 
   /*
    * ==========================================================
-   * PAYMENT MODAL DUE
+   * SELECTED BILL FINANCIAL DATA
    * ==========================================================
    */
 
-  const selectedBillDue =
+  const selectedBillFinancial =
     selectedBill
-      ? Number(
-          selectedBill.dueAmount || 0
+      ? normalizeBill(
+          selectedBill
         )
-      : 0;
+      : null;
+
+  const selectedBillDue =
+    selectedBillFinancial
+      ?.due ?? 0;
 
   /*
    * ==========================================================
-   * PAYMENT MODAL ENTERED AMOUNT
+   * ENTERED PAYMENT
    * ==========================================================
    */
 
@@ -287,7 +626,7 @@ export default function ReceptionistBillingPage() {
 
   /*
    * ==========================================================
-   * REMAINING DUE AFTER PAYMENT
+   * REMAINING AFTER PAYMENT
    * ==========================================================
    */
 
@@ -300,505 +639,18 @@ export default function ReceptionistBillingPage() {
 
   /*
    * ==========================================================
-   * CREATE BILL
-   * ==========================================================
-   */
-
-  const handleCreateBill = async (
-    event: FormEvent
-  ) => {
-    event.preventDefault();
-
-    if (!appointmentId) {
-      toast.error(
-        'Please select an appointment.'
-      );
-
-      return;
-    }
-
-    if (formTotal <= 0) {
-      toast.error(
-        'Please enter at least one charge.'
-      );
-
-      return;
-    }
-
-    if (
-      formPaid < 0 ||
-      formPaid > formTotal
-    ) {
-      toast.error(
-        'Paid amount cannot be greater than total amount.'
-      );
-
-      return;
-    }
-
-    try {
-      setCreating(true);
-
-      const created =
-        await billingService.createBilling({
-          appointmentId,
-
-          consultationFee:
-            Number(
-              consultationFee || 0
-            ),
-
-          medicineCharges:
-            Number(
-              medicineCharges || 0
-            ),
-
-          labCharges:
-            Number(
-              labCharges || 0
-            ),
-
-          otherCharges:
-            Number(
-              otherCharges || 0
-            ),
-
-          paidAmount:
-            Number(
-              paidAmount || 0
-            ),
-
-          paymentMethod,
-        });
-
-      setBills(
-        (previous) => [
-          created,
-          ...previous,
-        ]
-      );
-
-      toast.success(
-        `Bill ${created.invoiceNumber} created successfully.`
-      );
-
-      resetForm();
-
-      setShowCreateForm(
-        false
-      );
-    } catch (err) {
-      console.error(
-        'Failed to create bill:',
-        err
-      );
-
-      toast.error(
-        err instanceof Error
-          ? err.message
-          : 'Failed to create bill.'
-      );
-    } finally {
-      setCreating(false);
-    }
-  };
-
-  /*
-   * ==========================================================
-   * OPEN RECORD PAYMENT MODAL
-   * ==========================================================
-   */
-
-  const openPaymentModal = (
-    bill: Billing
-  ) => {
-    /*
-     * Always calculate the outstanding amount
-     * from the selected bill.
-     */
-
-    const due =
-      Number(
-        bill.dueAmount || 0
-      );
-
-    /*
-     * Do not allow payment if there is nothing due.
-     */
-
-    if (due <= 0) {
-      toast.info(
-        'This bill is already fully paid.'
-      );
-
-      return;
-    }
-
-    /*
-     * Do not allow payment for cancelled bills.
-     */
-
-    if (
-      bill.paymentStatus
-        ?.toLowerCase() ===
-      'cancelled'
-    ) {
-      toast.error(
-        'Payment cannot be recorded for a cancelled bill.'
-      );
-
-      return;
-    }
-
-    /*
-     * Select the bill.
-     */
-
-    setSelectedBill(
-      bill
-    );
-
-    /*
-     * By default, fill the payment field
-     * with the complete outstanding amount.
-     */
-
-    setPaymentAmount(
-      due.toString()
-    );
-
-    /*
-     * Use existing payment method if available.
-     */
-
-    setRecordPaymentMethod(
-      bill.paymentMethod ||
-        'UPI'
-    );
-
-    /*
-     * Open modal.
-     */
-
-    setShowPaymentModal(
-      true
-    );
-  };
-
-  /*
-   * ==========================================================
-   * CLOSE RECORD PAYMENT MODAL
-   * ==========================================================
-   */
-
-  const closePaymentModal = () => {
-    /*
-     * Do not close while API request is running.
-     */
-
-    if (
-      recordingPayment
-    ) {
-      return;
-    }
-
-    setShowPaymentModal(
-      false
-    );
-
-    setSelectedBill(
-      null
-    );
-
-    setPaymentAmount(
-      ''
-    );
-
-    setRecordPaymentMethod(
-      'UPI'
-    );
-  };
-
-  /*
-   * ==========================================================
-   * RECORD PAYMENT
-   * ==========================================================
-   *
-   * IMPORTANT:
-   *
-   * This is the ONLY handleRecordPayment function.
-   *
-   * The previous file accidentally contained another
-   * handleRecordPayment inside this function, which caused:
-   *
-   * - duplicate function errors
-   * - setProcessingPaymentId errors
-   * - null.dueAmount errors
-   *
-   * This version removes all of those problems.
-   * ==========================================================
-   */
-
-  const handleRecordPayment = async (
-    event: FormEvent
-  ) => {
-    event.preventDefault();
-
-    /*
-     * Make sure a bill is selected.
-     */
-
-    if (!selectedBill) {
-      toast.error(
-        'No bill selected.'
-      );
-
-      return;
-    }
-
-    /*
-     * Read the payment amount entered by receptionist.
-     */
-
-    const amount =
-      Number(
-        paymentAmount || 0
-      );
-
-    /*
-     * Read the current outstanding amount.
-     */
-
-    const due =
-      Number(
-        selectedBill.dueAmount || 0
-      );
-
-    /*
-     * Validate payment amount.
-     */
-
-    if (
-      amount <= 0
-    ) {
-      toast.error(
-        'Please enter a valid payment amount.'
-      );
-
-      return;
-    }
-
-    /*
-     * Payment cannot be greater than outstanding due.
-     */
-
-    if (
-      amount > due
-    ) {
-      toast.error(
-        'Payment amount cannot be greater than the outstanding due amount.'
-      );
-
-      return;
-    }
-
-    /*
-     * Prevent payment on cancelled bills.
-     */
-
-    if (
-      selectedBill.paymentStatus
-        ?.toLowerCase() ===
-      'cancelled'
-    ) {
-      toast.error(
-        'Payment cannot be recorded for a cancelled bill.'
-      );
-
-      return;
-    }
-
-    try {
-      /*
-       * Start loading state.
-       */
-
-      setRecordingPayment(
-        true
-      );
-
-      /*
-       * Calculate the new total paid amount.
-       *
-       * Example:
-       *
-       * Existing paid = ₹500
-       * Current payment = ₹500
-       *
-       * New paid = ₹1000
-       */
-
-      const currentPaid =
-        Number(
-          selectedBill.paidAmount || 0
-        );
-
-      const newPaidAmount =
-        currentPaid +
-        amount;
-
-      /*
-       * ======================================================
-       * UPDATE BILL
-       * ======================================================
-       *
-       * IMPORTANT:
-       *
-       * We DO NOT access:
-       *
-       * updated.dueAmount
-       *
-       * because some backend implementations return:
-       *
-       * - null
-       * - undefined
-       * - 204 No Content
-       *
-       * after a successful PUT/PATCH.
-       */
-
-      await billingService.updateBilling(
-        selectedBill.id,
-        {
-          paidAmount:
-            newPaidAmount,
-
-          paymentMethod:
-            recordPaymentMethod,
-        }
-      );
-
-      /*
-       * ======================================================
-       * RELOAD BILLING DATA
-       * ======================================================
-       *
-       * Instead of depending on the response body from
-       * updateBilling(), fetch the billing list again.
-       *
-       * This guarantees that the frontend displays the
-       * actual database state.
-       */
-
-      await loadBillings();
-
-      /*
-       * Success message.
-       */
-
-      toast.success(
-        `Payment of ${formatCurrency(
-          amount
-        )} recorded successfully.`
-      );
-
-      /*
-       * Close the modal.
-       */
-
-      setShowPaymentModal(
-        false
-      );
-
-      /*
-       * Clear selected bill and payment fields.
-       */
-
-      setSelectedBill(
-        null
-      );
-
-      setPaymentAmount(
-        ''
-      );
-
-      setRecordPaymentMethod(
-        'UPI'
-      );
-    } catch (err) {
-      console.error(
-        'Failed to record payment:',
-        err
-      );
-
-      toast.error(
-        err instanceof Error
-          ? err.message
-          : 'Failed to record payment.'
-      );
-    } finally {
-      /*
-       * Stop loading state.
-       */
-
-      setRecordingPayment(
-        false
-      );
-    }
-  };
-
-  /*
-   * ==========================================================
-   * MARK FULL DUE AS PAID
-   * ==========================================================
-   *
-   * Fills the payment input with the complete outstanding
-   * amount.
-   */
-
-  const markFullAmount = () => {
-    if (!selectedBill) {
-      return;
-    }
-
-    setPaymentAmount(
-      Number(
-        selectedBill.dueAmount || 0
-      ).toString()
-    );
-  };
-
-  /*
-   * ==========================================================
-   * RESET CREATE BILL FORM
-   * ==========================================================
-   */
-
-  const resetForm = () => {
-    setAppointmentId('');
-    setConsultationFee('');
-    setMedicineCharges('');
-    setLabCharges('');
-    setOtherCharges('');
-    setPaidAmount('');
-    setPaymentMethod('UPI');
-  };
-
-  /*
-   * ==========================================================
    * FORMAT CURRENCY
    * ==========================================================
    */
 
-  const formatCurrency = (
-    amount: number
-  ) => {
-    return `₹${Number(
-      amount || 0
-    ).toLocaleString(
-      'en-IN'
-    )}`;
-  };
+  const formatCurrency =
+    (amount: number) => {
+      return `₹${Number(
+        amount || 0
+      ).toLocaleString(
+        'en-IN'
+      )}`;
+    };
 
   /*
    * ==========================================================
@@ -806,101 +658,502 @@ export default function ReceptionistBillingPage() {
    * ==========================================================
    */
 
-  const formatDate = (
-    value: string
-  ) => {
-    if (!value) {
-      return '—';
-    }
-
-    const date =
-      new Date(value);
-
-    if (
-      Number.isNaN(
-        date.getTime()
-      )
-    ) {
-      return value;
-    }
-
-    return date.toLocaleDateString(
-      'en-IN',
-      {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
+  const formatDate =
+    (value: string) => {
+      if (!value) {
+        return '—';
       }
-    );
-  };
+
+      const date =
+        new Date(value);
+
+      if (
+        Number.isNaN(
+          date.getTime()
+        )
+      ) {
+        return value;
+      }
+
+      return date.toLocaleDateString(
+        'en-IN',
+        {
+          day: '2-digit',
+          month: 'short',
+          year: 'numeric',
+        }
+      );
+    };
 
   /*
    * ==========================================================
-   * STATUS
+   * RESET CREATE FORM
    * ==========================================================
    */
 
-  const getStatus = (
-    status: string
-  ) => {
-    switch (
-      status?.toLowerCase()
-    ) {
-      case 'paid':
-        return {
-          className:
-            'bg-green-100 text-green-700',
-          icon: (
-            <CheckCircle2
-              size={14}
-            />
-          ),
-          label: 'PAID',
-        };
+  const resetForm =
+    () => {
+      setAppointmentId('');
+      setConsultationFee('');
+      setMedicineCharges('');
+      setLabCharges('');
+      setOtherCharges('');
+      setPaidAmount('');
+      setPaymentMethod(
+        'UPI'
+      );
+    };
 
-      case 'pending':
-      case 'partially paid':
-      case 'partial':
-        return {
-          className:
-            'bg-yellow-100 text-yellow-700',
-          icon: (
-            <Clock3
-              size={14}
-            />
-          ),
-          label:
-            status?.toUpperCase() ||
-            'PENDING',
-        };
+  /*
+   * ==========================================================
+   * CREATE BILL
+   * ==========================================================
+   */
 
-      case 'cancelled':
-        return {
-          className:
-            'bg-red-100 text-red-700',
-          icon: (
-            <XCircle
-              size={14}
-            />
-          ),
-          label: 'CANCELLED',
-        };
+  const handleCreateBill =
+    async (
+      event: FormEvent
+    ) => {
+      event.preventDefault();
 
-      default:
-        return {
-          className:
-            'bg-gray-100 text-gray-700',
-          icon: (
-            <Clock3
-              size={14}
-            />
-          ),
-          label:
-            status?.toUpperCase() ||
-            'UNKNOWN',
-        };
-    }
-  };
+      if (!appointmentId) {
+        toast.error(
+          'Please select an appointment.'
+        );
+
+        return;
+      }
+
+      if (formTotal <= 0) {
+        toast.error(
+          'Please enter at least one charge.'
+        );
+
+        return;
+      }
+
+      if (
+        formPaid < 0 ||
+        formPaid > formTotal
+      ) {
+        toast.error(
+          'Paid amount cannot be greater than total amount.'
+        );
+
+        return;
+      }
+
+      try {
+        setCreating(true);
+
+        const created =
+          await billingService.createBilling(
+            {
+              appointmentId,
+
+              consultationFee:
+                Number(
+                  consultationFee ||
+                    0
+                ),
+
+              medicineCharges:
+                Number(
+                  medicineCharges ||
+                    0
+                ),
+
+              labCharges:
+                Number(
+                  labCharges ||
+                    0
+                ),
+
+              otherCharges:
+                Number(
+                  otherCharges ||
+                    0
+                ),
+
+              paidAmount:
+                Number(
+                  paidAmount || 0
+                ),
+
+              paymentMethod,
+            }
+          );
+
+        /*
+         * Add newly created bill.
+         */
+
+        setBills(
+          (previous) => [
+            created,
+            ...previous,
+          ]
+        );
+
+        toast.success(
+          `Bill ${
+            created.invoiceNumber ||
+            ''
+          } created successfully.`
+        );
+
+        resetForm();
+
+        setShowCreateForm(
+          false
+        );
+
+        /*
+         * Reload once more so frontend exactly matches
+         * backend state.
+         */
+
+        await loadBillings();
+      } catch (err) {
+        console.error(
+          'Failed to create bill:',
+          err
+        );
+
+        toast.error(
+          err instanceof Error
+            ? err.message
+            : 'Failed to create bill.'
+        );
+      } finally {
+        setCreating(false);
+      }
+    };
+
+  /*
+   * ==========================================================
+   * OPEN PAYMENT MODAL
+   * ==========================================================
+   */
+
+  const openPaymentModal =
+    (
+      bill: Billing
+    ) => {
+      const financial =
+        normalizeBill(
+          bill
+        );
+
+      /*
+       * Cancelled bills cannot receive payment.
+       */
+
+      if (
+        financial.status ===
+        'CANCELLED'
+      ) {
+        toast.error(
+          'Payment cannot be recorded for a cancelled bill.'
+        );
+
+        return;
+      }
+
+      /*
+       * Fully paid bills do not need payment.
+       */
+
+      if (
+        financial.due <= 0
+      ) {
+        toast.info(
+          'This bill is already fully paid.'
+        );
+
+        return;
+      }
+
+      setSelectedBill(
+        bill
+      );
+
+      /*
+       * Automatically enter complete outstanding amount.
+       */
+
+      setPaymentAmount(
+        financial.due.toString()
+      );
+
+      setRecordPaymentMethod(
+        bill.paymentMethod ||
+          'UPI'
+      );
+
+      setShowPaymentModal(
+        true
+      );
+    };
+
+  /*
+   * ==========================================================
+   * CLOSE PAYMENT MODAL
+   * ==========================================================
+   */
+
+  const closePaymentModal =
+    () => {
+      if (
+        recordingPayment
+      ) {
+        return;
+      }
+
+      setShowPaymentModal(
+        false
+      );
+
+      setSelectedBill(
+        null
+      );
+
+      setPaymentAmount('');
+
+      setRecordPaymentMethod(
+        'UPI'
+      );
+    };
+
+  /*
+   * ==========================================================
+   * RECORD PAYMENT
+   * ==========================================================
+   */
+
+  const handleRecordPayment =
+    async (
+      event: FormEvent
+    ) => {
+      event.preventDefault();
+
+      if (!selectedBill) {
+        toast.error(
+          'No bill selected.'
+        );
+
+        return;
+      }
+
+      const financial =
+        normalizeBill(
+          selectedBill
+        );
+
+      const amount =
+        Number(
+          paymentAmount || 0
+        );
+
+      const due =
+        financial.due;
+
+      if (amount <= 0) {
+        toast.error(
+          'Please enter a valid payment amount.'
+        );
+
+        return;
+      }
+
+      if (amount > due) {
+        toast.error(
+          'Payment amount cannot be greater than the outstanding due amount.'
+        );
+
+        return;
+      }
+
+      if (
+        financial.status ===
+        'CANCELLED'
+      ) {
+        toast.error(
+          'Payment cannot be recorded for a cancelled bill.'
+        );
+
+        return;
+      }
+
+      try {
+        setRecordingPayment(
+          true
+        );
+
+        /*
+         * Existing paid amount.
+         */
+
+        const currentPaid =
+          financial.paid;
+
+        /*
+         * New paid amount.
+         */
+
+        const newPaidAmount =
+          currentPaid +
+          amount;
+
+        /*
+         * Update backend.
+         */
+
+        await billingService.updateBilling(
+          selectedBill.id,
+          {
+            paidAmount:
+              newPaidAmount,
+
+            paymentMethod:
+              recordPaymentMethod,
+          }
+        );
+
+        /*
+         * IMPORTANT:
+         *
+         * Reload the database state rather than trusting
+         * the update response.
+         */
+
+        await loadBillings();
+
+        toast.success(
+          `Payment of ${formatCurrency(
+            amount
+          )} recorded successfully.`
+        );
+
+        closePaymentModal();
+      } catch (err) {
+        console.error(
+          'Failed to record payment:',
+          err
+        );
+
+        toast.error(
+          err instanceof Error
+            ? err.message
+            : 'Failed to record payment.'
+        );
+      } finally {
+        setRecordingPayment(
+          false
+        );
+      }
+    };
+
+  /*
+   * ==========================================================
+   * PAY FULL DUE
+   * ==========================================================
+   */
+
+  const markFullAmount =
+    () => {
+      if (
+        !selectedBill
+      ) {
+        return;
+      }
+
+      const financial =
+        normalizeBill(
+          selectedBill
+        );
+
+      setPaymentAmount(
+        financial.due.toString()
+      );
+    };
+
+  /*
+   * ==========================================================
+   * STATUS UI
+   * ==========================================================
+   */
+
+  const getStatus =
+    (
+      status:
+        | 'PAID'
+        | 'PARTIAL'
+        | 'PENDING'
+        | 'CANCELLED'
+    ) => {
+      switch (status) {
+        case 'PAID':
+          return {
+            className:
+              'bg-green-100 text-green-700',
+            icon: (
+              <CheckCircle2
+                size={14}
+              />
+            ),
+            label: 'PAID',
+          };
+
+        case 'PARTIAL':
+          return {
+            className:
+              'bg-yellow-100 text-yellow-700',
+            icon: (
+              <Clock3
+                size={14}
+              />
+            ),
+            label: 'PARTIAL',
+          };
+
+        case 'PENDING':
+          return {
+            className:
+              'bg-yellow-100 text-yellow-700',
+            icon: (
+              <Clock3
+                size={14}
+              />
+            ),
+            label: 'PENDING',
+          };
+
+        case 'CANCELLED':
+          return {
+            className:
+              'bg-red-100 text-red-700',
+            icon: (
+              <XCircle
+                size={14}
+              />
+            ),
+            label: 'CANCELLED',
+          };
+
+        default:
+          return {
+            className:
+              'bg-gray-100 text-gray-700',
+            icon: (
+              <Clock3
+                size={14}
+              />
+            ),
+            label: 'UNKNOWN',
+          };
+      }
+    };
 
   /*
    * ==========================================================
@@ -908,34 +1161,35 @@ export default function ReceptionistBillingPage() {
    * ==========================================================
    */
 
-  const getPaymentMethodIcon = (
-    method: string
-  ) => {
-    switch (
-      method?.toLowerCase()
-    ) {
-      case 'cash':
-        return (
-          <Banknote
-            size={16}
-          />
-        );
+  const getPaymentMethodIcon =
+    (
+      method: string
+    ) => {
+      switch (
+        method?.toLowerCase()
+      ) {
+        case 'cash':
+          return (
+            <Banknote
+              size={16}
+            />
+          );
 
-      case 'card':
-        return (
-          <CreditCard
-            size={16}
-          />
-        );
+        case 'card':
+          return (
+            <CreditCard
+              size={16}
+            />
+          );
 
-      default:
-        return (
-          <Wallet
-            size={16}
-          />
-        );
-    }
-  };
+        default:
+          return (
+            <Wallet
+              size={16}
+            />
+          );
+      }
+    };
 
   /*
    * ==========================================================
@@ -952,7 +1206,8 @@ export default function ReceptionistBillingPage() {
         role="receptionist"
         breadcrumbs={[
           {
-            label: 'Dashboard',
+            label:
+              'Dashboard',
             href:
               '/receptionist-dashboard',
           },
@@ -1162,7 +1417,7 @@ export default function ReceptionistBillingPage() {
                 </h2>
 
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Generate a bill for a completed patient visit.
+                  Generate a bill for a patient visit.
                 </p>
               </div>
 
@@ -1204,7 +1459,8 @@ export default function ReceptionistBillingPage() {
                   }
                   onChange={(event) =>
                     setAppointmentId(
-                      event.target.value
+                      event.target
+                        .value
                     )
                   }
                   className="w-full rounded-lg border bg-background px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-cyan-500"
@@ -1216,7 +1472,9 @@ export default function ReceptionistBillingPage() {
 
                   {appointments
                     .filter(
-                      (appointment) =>
+                      (
+                        appointment
+                      ) =>
                         appointment.status !==
                         'CANCELLED'
                     )
@@ -1355,7 +1613,7 @@ export default function ReceptionistBillingPage() {
 
               </div>
 
-              {/* TOTAL */}
+              {/* TOTAL PREVIEW */}
 
               <div className="grid sm:grid-cols-3 gap-4">
 
@@ -1442,7 +1700,7 @@ export default function ReceptionistBillingPage() {
         )}
 
         {/* ==================================================
-            BILLING TABLE
+            BILLING RECORDS
         ================================================== */}
 
         <div className="rounded-xl border bg-card overflow-hidden">
@@ -1540,29 +1798,27 @@ export default function ReceptionistBillingPage() {
 
                 <tbody>
 
-                  {bills.map(
-                    (bill) => {
-
+                  {normalizedBills.map(
+                    ({
+                      bill,
+                      financial,
+                    }) => {
                       const status =
                         getStatus(
-                          bill.paymentStatus
-                        );
-
-                      const due =
-                        Number(
-                          bill.dueAmount || 0
+                          financial.status
                         );
 
                       const isCancelled =
-                        bill.paymentStatus
-                          ?.toLowerCase() ===
-                        'cancelled';
+                        financial.status ===
+                        'CANCELLED';
 
                       const isPaid =
-                        due <= 0 ||
-                        bill.paymentStatus
-                          ?.toLowerCase() ===
-                        'paid';
+                        financial.status ===
+                        'PAID';
+
+                      const hasDue =
+                        financial.due >
+                        0;
 
                       return (
                         <tr
@@ -1605,7 +1861,7 @@ export default function ReceptionistBillingPage() {
 
                           <td className="px-5 py-4 font-semibold whitespace-nowrap">
                             {formatCurrency(
-                              bill.totalAmount
+                              financial.total
                             )}
                           </td>
 
@@ -1613,19 +1869,28 @@ export default function ReceptionistBillingPage() {
 
                           <td className="px-5 py-4 font-semibold text-green-600 whitespace-nowrap">
                             {formatCurrency(
-                              bill.paidAmount
+                              financial.paid
                             )}
                           </td>
 
                           {/* DUE */}
 
-                          <td className="px-5 py-4 font-semibold text-yellow-600 whitespace-nowrap">
-                            {formatCurrency(
-                              bill.dueAmount
-                            )}
+                          <td className="px-5 py-4 font-semibold whitespace-nowrap">
+                            <span
+                              className={
+                                financial.due >
+                                0
+                                  ? 'text-yellow-600'
+                                  : 'text-slate-600'
+                              }
+                            >
+                              {formatCurrency(
+                                financial.due
+                              )}
+                            </span>
                           </td>
 
-                          {/* PAYMENT */}
+                          {/* PAYMENT METHOD */}
 
                           <td className="px-5 py-4 text-sm whitespace-nowrap">
                             <div className="flex items-center gap-2">
@@ -1663,8 +1928,8 @@ export default function ReceptionistBillingPage() {
 
                           <td className="px-5 py-4 text-right whitespace-nowrap">
 
-                            {!isCancelled &&
-                            !isPaid ? (
+                            {hasDue &&
+                            !isCancelled ? (
                               <button
                                 type="button"
                                 onClick={() =>
@@ -1680,14 +1945,13 @@ export default function ReceptionistBillingPage() {
 
                                 Record Payment
                               </button>
-                            ) : isPaid &&
-                              !isCancelled ? (
-                              <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-green-600">
-                                <CheckCircle2
-                                  size={14}
-                                />
-
-                                Paid
+                            ) : isPaid ? (
+                              <span className="text-xs text-muted-foreground">
+                                —
+                              </span>
+                            ) : isCancelled ? (
+                              <span className="text-xs text-muted-foreground">
+                                —
                               </span>
                             ) : (
                               <span className="text-xs text-muted-foreground">
@@ -1718,35 +1982,34 @@ export default function ReceptionistBillingPage() {
       ==================================================== */}
 
       {showPaymentModal &&
-        selectedBill && (
+        selectedBill &&
+        selectedBillFinancial && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
 
             <div className="w-full max-w-lg rounded-2xl border bg-card shadow-2xl">
 
-              {/* MODAL HEADER */}
+              {/* HEADER */}
 
               <div className="flex items-center justify-between border-b p-5">
 
-                <div>
-                  <div className="flex items-center gap-2">
+                <div className="flex items-center gap-3">
 
-                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-cyan-100 text-cyan-700">
-                      <IndianRupee
-                        size={20}
-                      />
-                    </div>
-
-                    <div>
-                      <h2 className="text-xl font-bold">
-                        Record Payment
-                      </h2>
-
-                      <p className="text-sm text-muted-foreground">
-                        {selectedBill.invoiceNumber}
-                      </p>
-                    </div>
-
+                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-cyan-100 text-cyan-700">
+                    <IndianRupee
+                      size={20}
+                    />
                   </div>
+
+                  <div>
+                    <h2 className="text-xl font-bold">
+                      Record Payment
+                    </h2>
+
+                    <p className="text-sm text-muted-foreground">
+                      {selectedBill.invoiceNumber}
+                    </p>
+                  </div>
+
                 </div>
 
                 <button
@@ -1766,7 +2029,7 @@ export default function ReceptionistBillingPage() {
 
               </div>
 
-              {/* MODAL BODY */}
+              {/* BODY */}
 
               <form
                 onSubmit={
@@ -1810,10 +2073,7 @@ export default function ReceptionistBillingPage() {
 
                       <p className="mt-1 font-semibold">
                         {formatCurrency(
-                          Number(
-                            selectedBill.totalAmount ||
-                              0
-                          )
+                          selectedBillFinancial.total
                         )}
                       </p>
                     </div>
@@ -1825,10 +2085,7 @@ export default function ReceptionistBillingPage() {
 
                       <p className="mt-1 font-semibold text-green-600">
                         {formatCurrency(
-                          Number(
-                            selectedBill.paidAmount ||
-                              0
-                          )
+                          selectedBillFinancial.paid
                         )}
                       </p>
                     </div>
@@ -1845,7 +2102,7 @@ export default function ReceptionistBillingPage() {
 
                       <span className="text-lg font-bold text-yellow-800">
                         {formatCurrency(
-                          selectedBillDue
+                          selectedBillFinancial.due
                         )}
                       </span>
 
@@ -1873,7 +2130,7 @@ export default function ReceptionistBillingPage() {
                       type="number"
                       min="0.01"
                       max={
-                        selectedBillDue
+                        selectedBillFinancial.due
                       }
                       step="0.01"
                       value={
@@ -1900,7 +2157,7 @@ export default function ReceptionistBillingPage() {
                       Maximum payment:
                       {' '}
                       {formatCurrency(
-                        selectedBillDue
+                        selectedBillFinancial.due
                       )}
                     </p>
 
@@ -1976,10 +2233,7 @@ export default function ReceptionistBillingPage() {
 
                     <p className="mt-1 text-lg font-bold text-green-700">
                       {formatCurrency(
-                        Number(
-                          selectedBill.paidAmount ||
-                            0
-                        ) +
+                        selectedBillFinancial.paid +
                           enteredPaymentAmount
                       )}
                     </p>
@@ -2028,7 +2282,7 @@ export default function ReceptionistBillingPage() {
                 {enteredPaymentAmount >
                   0 &&
                   enteredPaymentAmount >=
-                    selectedBillDue && (
+                    selectedBillFinancial.due && (
                     <div className="rounded-lg border border-green-200 bg-green-50 p-3">
 
                       <div className="flex items-center gap-2 text-sm font-semibold text-green-700">
@@ -2044,7 +2298,7 @@ export default function ReceptionistBillingPage() {
                     </div>
                   )}
 
-                {/* MODAL ACTIONS */}
+                {/* ACTIONS */}
 
                 <div className="flex justify-end gap-3 pt-2">
 
@@ -2068,7 +2322,7 @@ export default function ReceptionistBillingPage() {
                       enteredPaymentAmount <=
                         0 ||
                       enteredPaymentAmount >
-                        selectedBillDue
+                        selectedBillFinancial.due
                     }
                     className="inline-flex items-center gap-2 rounded-lg bg-cyan-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-cyan-700 disabled:cursor-not-allowed disabled:opacity-60"
                   >

@@ -21,8 +21,241 @@ import {
   CheckCircle2,
   Clock3,
   XCircle,
-  IndianRupee,
 } from 'lucide-react';
+
+/* ============================================================
+   BILLING HELPERS
+
+   Receptionist billing rule:
+
+   TOTAL = actual bill amount
+   PAID  = actual payment
+   DUE   = max(TOTAL - PAID, 0)
+
+   The patient billing page uses exactly the same rule.
+============================================================ */
+
+type BillingLike =
+  Billing & {
+    patientId?: string | null;
+
+    amount?: number | string | null;
+    billAmount?: number | string | null;
+    chargeAmount?: number | string | null;
+    finalAmount?: number | string | null;
+    total?: number | string | null;
+
+    paid?: number | string | null;
+    amountPaid?: number | string | null;
+  };
+
+const toAmount = (
+  value: unknown
+): number => {
+  const amount =
+    Number(value);
+
+  if (
+    !Number.isFinite(amount) ||
+    amount < 0
+  ) {
+    return 0;
+  }
+
+  return amount;
+};
+
+/**
+ * Get the actual bill total.
+ *
+ * Normally this is totalAmount from the receptionist
+ * billing record.
+ *
+ * Fallback fields are supported for older API records.
+ */
+const getBillTotal = (
+  bill: BillingLike
+): number => {
+  const totalAmount =
+    toAmount(
+      bill.totalAmount
+    );
+
+  if (
+    totalAmount > 0
+  ) {
+    return totalAmount;
+  }
+
+  const fallbackAmounts = [
+    bill.amount,
+    bill.billAmount,
+    bill.chargeAmount,
+    bill.finalAmount,
+    bill.total,
+  ];
+
+  for (
+    const value of fallbackAmounts
+  ) {
+    const amount =
+      toAmount(value);
+
+    if (
+      amount > 0
+    ) {
+      return amount;
+    }
+  }
+
+  /*
+   * Repair old billing records where:
+   *
+   * totalAmount = 0
+   * paidAmount  = 2104
+   * dueAmount   = -2104
+   *
+   * The paid amount is the only valid financial
+   * amount available in that corrupted record.
+   */
+  const paidAmount =
+    getBillPaidAmount(
+      bill
+    );
+
+  if (
+    paidAmount > 0
+  ) {
+    return paidAmount;
+  }
+
+  return 0;
+};
+
+/**
+ * Get actual paid amount.
+ */
+const getBillPaidAmount = (
+  bill: BillingLike
+): number => {
+  const values = [
+    bill.paidAmount,
+    bill.paid,
+    bill.amountPaid,
+  ];
+
+  for (
+    const value of values
+  ) {
+    const amount =
+      toAmount(value);
+
+    if (
+      amount > 0
+    ) {
+      return amount;
+    }
+  }
+
+  return 0;
+};
+
+/**
+ * Calculate remaining amount.
+ *
+ * IMPORTANT:
+ * Never use backend dueAmount directly.
+ *
+ * This prevents values such as:
+ *
+ * -₹2,104
+ * -₹2,330
+ *
+ * from appearing in the UI.
+ */
+const getBillDueAmount = (
+  bill: BillingLike
+): number => {
+  const total =
+    getBillTotal(
+      bill
+    );
+
+  const paid =
+    getBillPaidAmount(
+      bill
+    );
+
+  return Math.max(
+    total - paid,
+    0
+  );
+};
+
+/**
+ * Get normalized payment status.
+ *
+ * Status is calculated from the actual total
+ * and paid amounts instead of trusting potentially
+ * stale paymentStatus values.
+ */
+const getCalculatedStatus = (
+  bill: BillingLike
+): 'PAID' | 'PARTIAL' | 'PENDING' | 'CANCELLED' => {
+  const backendStatus =
+    String(
+      bill.paymentStatus ?? ''
+    )
+      .trim()
+      .toLowerCase();
+
+  if (
+    backendStatus ===
+      'cancelled' ||
+    backendStatus ===
+      'canceled'
+  ) {
+    return 'CANCELLED';
+  }
+
+  const total =
+    getBillTotal(
+      bill
+    );
+
+  const paid =
+    getBillPaidAmount(
+      bill
+    );
+
+  const due =
+    Math.max(
+      total - paid,
+      0
+    );
+
+  if (
+    total <= 0
+  ) {
+    return 'PENDING';
+  }
+
+  if (
+    due <= 0 &&
+    paid >= total
+  ) {
+    return 'PAID';
+  }
+
+  if (
+    paid > 0 &&
+    paid < total
+  ) {
+    return 'PARTIAL';
+  }
+
+  return 'PENDING';
+};
 
 export default function BillingPage() {
   const [bills, setBills] =
@@ -32,101 +265,152 @@ export default function BillingPage() {
     useState(true);
 
   const [error, setError] =
-    useState<string | null>(null);
+    useState<string | null>(
+      null
+    );
 
   // =========================================================
   // LOAD BILLING
   // =========================================================
 
-  const loadBilling = async () => {
-    try {
-      setLoading(true);
-      setError(null);
+  const loadBilling =
+    async () => {
+      try {
+        setLoading(true);
+        setError(null);
 
-      // -------------------------------------------------------
-      // Get logged-in patient ID
-      // -------------------------------------------------------
+        /*
+         * -----------------------------------------------------
+         * Get logged-in patient ID
+         * -----------------------------------------------------
+         */
 
-      const patientId =
-        localStorage.getItem(
-          'patientId'
+        let patientId =
+          localStorage.getItem(
+            'patientId'
+          );
+
+        /*
+         * -----------------------------------------------------
+         * If patientId is not available, stop here.
+         * -----------------------------------------------------
+         */
+
+        if (!patientId) {
+          setBills([]);
+
+          setError(
+            'Patient information could not be found. Please login again.'
+          );
+
+          return;
+        }
+
+        /*
+         * -----------------------------------------------------
+         * Get patient's appointments
+         * -----------------------------------------------------
+         */
+
+        const patientAppointments:
+          Appointment[] =
+          await appointmentService.getAppointmentsByPatientId(
+            patientId
+          );
+
+        /*
+         * -----------------------------------------------------
+         * Get ALL billing records.
+         *
+         * These are the same billing records created/
+         * updated by the receptionist billing page.
+         * -----------------------------------------------------
+         */
+
+        const allBills =
+          await billingService.getBillings();
+
+        /*
+         * -----------------------------------------------------
+         * Get patient's appointment IDs
+         * -----------------------------------------------------
+         */
+
+        const patientAppointmentIds =
+          new Set(
+            patientAppointments.map(
+              (
+                appointment
+              ) =>
+                appointment.id
+            )
+          );
+
+        /*
+         * -----------------------------------------------------
+         * Filter bills.
+         *
+         * Primary:
+         *   patientId
+         *
+         * Fallback:
+         *   appointmentId
+         *
+         * This allows the page to work with both new and
+         * older billing records.
+         * -----------------------------------------------------
+         */
+
+        const patientBills =
+          (
+            allBills as BillingLike[]
+          ).filter(
+            (bill) => {
+              /*
+               * New billing records should contain
+               * patientId.
+               */
+              if (
+                bill.patientId
+              ) {
+                return (
+                  bill.patientId
+                    .toString()
+                    .toLowerCase() ===
+                  patientId
+                    .toString()
+                    .toLowerCase()
+                );
+              }
+
+              /*
+               * Older records can be associated through
+               * appointmentId.
+               */
+              return patientAppointmentIds.has(
+                bill.appointmentId
+              );
+            }
+          );
+
+        setBills(
+          patientBills as Billing[]
         );
-
-      if (!patientId) {
-        setBills([]);
+      } catch (err) {
+        console.error(
+          'Failed to load billing:',
+          err
+        );
 
         setError(
-          'Patient information could not be found. Please login again.'
+          err instanceof Error
+            ? err.message
+            : 'Failed to load billing information.'
         );
-
-        return;
+      } finally {
+        setLoading(false);
       }
-
-      // -------------------------------------------------------
-      // Get appointments of logged-in patient
-      // -------------------------------------------------------
-
-      const patientAppointments: Appointment[] =
-        await appointmentService.getAppointmentsByPatientId(
-          patientId
-        );
-
-      // -------------------------------------------------------
-      // Get all billing records
-      // -------------------------------------------------------
-
-      const allBills =
-        await billingService.getBillings();
-
-      // -------------------------------------------------------
-      // Get IDs of patient's appointments
-      // -------------------------------------------------------
-
-      const patientAppointmentIds =
-        new Set(
-          patientAppointments.map(
-            (appointment) =>
-              appointment.id
-          )
-        );
-
-      // -------------------------------------------------------
-      // Filter bills using appointmentId
-      //
-      // Your backend bill:
-      //
-      // appointmentId:
-      // 08def64a-4dbb-4403-81b8-5d5c83ed37dc
-      //
-      // belongs to John's appointment, so it will appear here.
-      // -------------------------------------------------------
-
-      const patientBills =
-        allBills.filter(
-          (bill) =>
-            patientAppointmentIds.has(
-              bill.appointmentId
-            )
-        );
-
-      setBills(
-        patientBills
-      );
-    } catch (err) {
-      console.error(
-        'Failed to load billing:',
-        err
-      );
-
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'Failed to load billing information.'
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
+    };
 
   // =========================================================
   // INITIAL LOAD
@@ -137,83 +421,140 @@ export default function BillingPage() {
   }, []);
 
   // =========================================================
+  // NORMALIZED BILL DATA
+  //
+  // Every calculation on this page uses this normalized
+  // representation.
+  // =========================================================
+
+  const normalizedBills =
+    useMemo(() => {
+      return (
+        bills as BillingLike[]
+      ).map(
+        (bill) => {
+          const total =
+            getBillTotal(
+              bill
+            );
+
+          const rawPaid =
+            getBillPaidAmount(
+              bill
+            );
+
+          /*
+           * Never allow paid to exceed total.
+           */
+          const paid =
+            Math.min(
+              rawPaid,
+              total
+            );
+
+          const due =
+            Math.max(
+              total - paid,
+              0
+            );
+
+          const status =
+            getCalculatedStatus(
+              bill
+            );
+
+          return {
+            bill,
+            total,
+            paid,
+            due,
+            status,
+          };
+        }
+      );
+    }, [bills]);
+
+  // =========================================================
   // TOTAL AMOUNT
   // =========================================================
 
-  const totalAmount = useMemo(() => {
-    return bills.reduce(
-      (
-        total,
-        bill
-      ) =>
-        total +
-        Number(
-          bill.totalAmount || 0
-        ),
-      0
-    );
-  }, [bills]);
+  const totalAmount =
+    useMemo(() => {
+      return normalizedBills.reduce(
+        (
+          total,
+          item
+        ) =>
+          total +
+          item.total,
+        0
+      );
+    }, [
+      normalizedBills,
+    ]);
 
   // =========================================================
   // PAID AMOUNT
   // =========================================================
 
-  const paidAmount = useMemo(() => {
-    return bills.reduce(
-      (
-        total,
-        bill
-      ) =>
-        total +
-        Number(
-          bill.paidAmount || 0
-        ),
-      0
-    );
-  }, [bills]);
+  const paidAmount =
+    useMemo(() => {
+      return normalizedBills.reduce(
+        (
+          total,
+          item
+        ) =>
+          total +
+          item.paid,
+        0
+      );
+    }, [
+      normalizedBills,
+    ]);
 
   // =========================================================
   // PENDING / DUE AMOUNT
   // =========================================================
 
-  const pendingAmount = useMemo(() => {
-    return bills.reduce(
-      (
-        total,
-        bill
-      ) =>
-        total +
-        Number(
-          bill.dueAmount || 0
-        ),
-      0
-    );
-  }, [bills]);
+  const pendingAmount =
+    useMemo(() => {
+      return normalizedBills.reduce(
+        (
+          total,
+          item
+        ) =>
+          total +
+          item.due,
+        0
+      );
+    }, [
+      normalizedBills,
+    ]);
 
   // =========================================================
   // CANCELLED AMOUNT
   // =========================================================
 
-  const cancelledAmount = useMemo(() => {
-    return bills
-      .filter(
-        (bill) =>
-          bill.paymentStatus
-            ?.toLowerCase() ===
-          'cancelled'
-      )
-      .reduce(
-        (
-          total,
-          bill
-        ) =>
-          total +
-          Number(
-            bill.totalAmount || 0
-          ),
-        0
-      );
-  }, [bills]);
+  const cancelledAmount =
+    useMemo(() => {
+      return normalizedBills
+        .filter(
+          (item) =>
+            item.status ===
+            'CANCELLED'
+        )
+        .reduce(
+          (
+            total,
+            item
+          ) =>
+            total +
+            item.total,
+          0
+        );
+    }, [
+      normalizedBills,
+    ]);
 
   // =========================================================
   // CURRENCY FORMAT
@@ -222,9 +563,13 @@ export default function BillingPage() {
   const formatCurrency = (
     amount: number
   ) => {
-    return `₹${Number(
-      amount || 0
-    ).toLocaleString(
+    const safeAmount =
+      Math.max(
+        Number(amount) || 0,
+        0
+      );
+
+    return `₹${safeAmount.toLocaleString(
       'en-IN'
     )}`;
   };
@@ -266,12 +611,16 @@ export default function BillingPage() {
   // =========================================================
 
   const getStatusStyle = (
-    status: string
+    status:
+      | 'PAID'
+      | 'PARTIAL'
+      | 'PENDING'
+      | 'CANCELLED'
   ) => {
     switch (
-      status?.toLowerCase()
+      status
     ) {
-      case 'paid':
+      case 'PAID':
         return {
           className:
             'bg-green-100 text-green-700',
@@ -279,12 +628,11 @@ export default function BillingPage() {
             <CheckCircle2
               size={14}
             />,
-          label: 'PAID',
+          label:
+            'PAID',
         };
 
-      case 'pending':
-      case 'partially paid':
-      case 'partial':
+      case 'PARTIAL':
         return {
           className:
             'bg-yellow-100 text-yellow-700',
@@ -293,10 +641,22 @@ export default function BillingPage() {
               size={14}
             />,
           label:
-            status.toUpperCase(),
+            'PARTIAL',
         };
 
-      case 'cancelled':
+      case 'PENDING':
+        return {
+          className:
+            'bg-yellow-100 text-yellow-700',
+          icon:
+            <Clock3
+              size={14}
+            />,
+          label:
+            'PENDING',
+        };
+
+      case 'CANCELLED':
         return {
           className:
             'bg-red-100 text-red-700',
@@ -304,7 +664,8 @@ export default function BillingPage() {
             <XCircle
               size={14}
             />,
-          label: 'CANCELLED',
+          label:
+            'CANCELLED',
         };
 
       default:
@@ -316,7 +677,6 @@ export default function BillingPage() {
               size={14}
             />,
           label:
-            status ||
             'UNKNOWN',
         };
     }
@@ -740,14 +1100,17 @@ export default function BillingPage() {
 
                 <tbody>
 
-                  {bills.map(
+                  {normalizedBills.map(
                     (
-                      bill
+                      item
                     ) => {
+
+                      const bill =
+                        item.bill;
 
                       const status =
                         getStatusStyle(
-                          bill.paymentStatus
+                          item.status
                         );
 
                       return (
@@ -806,7 +1169,7 @@ export default function BillingPage() {
                             <span className="font-semibold">
 
                               {formatCurrency(
-                                bill.totalAmount
+                                item.total
                               )}
 
                             </span>
@@ -820,7 +1183,7 @@ export default function BillingPage() {
                             <span className="font-semibold text-green-600">
 
                               {formatCurrency(
-                                bill.paidAmount
+                                item.paid
                               )}
 
                             </span>
@@ -833,7 +1196,7 @@ export default function BillingPage() {
 
                             <span
                               className={`font-semibold ${
-                                bill.dueAmount >
+                                item.due >
                                 0
                                   ? 'text-yellow-600'
                                   : 'text-muted-foreground'
@@ -841,7 +1204,7 @@ export default function BillingPage() {
                             >
 
                               {formatCurrency(
-                                bill.dueAmount
+                                item.due
                               )}
 
                             </span>

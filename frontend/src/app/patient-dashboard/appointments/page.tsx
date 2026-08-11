@@ -56,6 +56,10 @@ export default function PatientAppointmentsPage() {
 
       const storedPatientId =
         localStorage.getItem('patientId');
+        console.log(
+            'CURRENT LOGGED-IN PATIENT ID:',
+            storedPatientId
+          );
 
       if (!storedPatientId) {
         setAppointments([]);
@@ -70,6 +74,10 @@ export default function PatientAppointmentsPage() {
       const data =
         await appointmentService.getAppointmentsByPatientId(
           storedPatientId
+        );
+        console.log(
+          'PATIENT APPOINTMENTS FROM API:',
+          data
         );
 
       setAppointments(data || []);

@@ -166,171 +166,157 @@ export default function BookingForm() {
    * ==========================================================
    */
 
-  useEffect(() => {
-    let mounted = true;
+    useEffect(() => {
+  let mounted = true;
 
-    async function loadLoggedInPatient() {
-      /*
-       * Wait until authentication finishes.
-       */
+  async function loadLoggedInPatient() {
 
-      if (authLoading) {
-        return;
-      }
-
-      /*
-       * No authenticated user.
-       */
-
-      if (!user) {
-        if (mounted) {
-          setPatient(null);
-          setPatientLoading(false);
-        }
-
-        return;
-      }
-
-      try {
-        setPatientLoading(true);
-
-        /*
-         * If the user profile already contains patientId,
-         * use it if possible.
-         *
-         * Otherwise load all patients and match by email.
-         */
-
-        const patientData =
-          await patientService.getPatients();
-
-        if (!mounted) {
-          return;
-        }
-
-        const patients =
-          patientData || [];
-
-        /*
-         * ------------------------------------------------------
-         * MATCH PATIENT
-         * ------------------------------------------------------
-         *
-         * Email is the safest matching field because the
-         * authenticated UserProfile already contains email.
-         */
-
-        const loggedInEmail =
-          user.email
-            ?.trim()
-            .toLowerCase();
-
-        const matchedPatient =
-          patients.find(
-            (item) => {
-              const patientEmail =
-                (
-                  item as Patient & {
-                    email?: string;
-                  }
-                ).email
-                  ?.trim()
-                  .toLowerCase();
-
-              return (
-                !!loggedInEmail &&
-                !!patientEmail &&
-                patientEmail ===
-                  loggedInEmail
-              );
-            }
-          );
-
-        /*
-         * ------------------------------------------------------
-         * MATCH BY USER ID AS SECOND OPTION
-         * ------------------------------------------------------
-         *
-         * Some patient implementations store userId instead
-         * of exposing the email directly.
-         */
-
-        const matchedPatientByUserId =
-          !matchedPatient && user.id
-            ? patients.find(
-                (item) => {
-                  const patientWithUser =
-                    item as Patient & {
-                      userId?: string;
-                    };
-
-                  return (
-                    patientWithUser.userId ===
-                    user.id
-                  );
-                }
-              )
-            : undefined;
-
-        const resolvedPatient =
-          matchedPatient ||
-          matchedPatientByUserId ||
-          null;
-
-        if (!resolvedPatient) {
-          console.error(
-            'Unable to match logged-in user with a patient.',
-            {
-              user,
-              patients,
-            }
-          );
-
-          setPatient(null);
-
-          toast.error(
-            'Unable to identify your patient profile. Please contact the receptionist.'
-          );
-
-          return;
-        }
-
-        /*
-         * Patient successfully identified.
-         */
-
-        setPatient(resolvedPatient);
-
-        console.log(
-          'Logged-in patient identified:',
-          resolvedPatient
-        );
-      } catch (error) {
-        console.error(
-          'Failed to load logged-in patient:',
-          error
-        );
-
-        if (mounted) {
-          setPatient(null);
-
-          toast.error(
-            'Failed to load your patient profile.'
-          );
-        }
-      } finally {
-        if (mounted) {
-          setPatientLoading(false);
-        }
-      }
+    // Wait until authentication is finished
+    if (authLoading) {
+      return;
     }
 
-    loadLoggedInPatient();
+    // No logged-in user
+    if (!user) {
 
-    return () => {
-      mounted = false;
-    };
-  }, [user, authLoading]);
+      if (mounted) {
+        setPatient(null);
+        setPatientLoading(false);
+      }
+
+      return;
+    }
+
+    try {
+
+      setPatientLoading(true);
+
+      console.log(
+        '===================================='
+      );
+
+      console.log(
+        'BookingForm - Current User:',
+        user
+      );
+
+      console.log(
+        'BookingForm - Patient ID:',
+        user.patientId
+      );
+
+      console.log(
+        '===================================='
+      );
+
+      // ----------------------------------------------------
+      // PATIENT ID MUST COME FROM SPRING BOOT USER PROFILE
+      // ----------------------------------------------------
+
+      if (!user.patientId) {
+
+        console.error(
+          'Patient ID is NULL in current user profile:',
+          user
+        );
+
+        if (mounted) {
+
+          setPatient(null);
+
+          toast.error(
+            'Patient profile not found. Please contact the receptionist or administrator.'
+          );
+
+          setPatientLoading(false);
+        }
+
+        return;
+      }
+
+      // ----------------------------------------------------
+      // GET PATIENT FROM ASP.NET BUSINESS API
+      // ----------------------------------------------------
+
+      console.log(
+        'Loading patient from .NET using patientId:',
+        user.patientId
+      );
+
+      const patientData =
+        await patientService.getPatientById(
+          user.patientId
+        );
+
+      if (!mounted) {
+        return;
+      }
+
+      // ----------------------------------------------------
+      // PATIENT NOT FOUND
+      // ----------------------------------------------------
+
+      if (!patientData) {
+
+        console.error(
+          'No patient found in .NET Business API for patientId:',
+          user.patientId
+        );
+
+        setPatient(null);
+
+        toast.error(
+          'Patient profile not found in the healthcare system.'
+        );
+
+        return;
+      }
+
+      // ----------------------------------------------------
+      // SUCCESS
+      // ----------------------------------------------------
+
+      console.log(
+        'Patient loaded successfully:',
+        patientData
+      );
+
+      setPatient(patientData);
+
+    } catch (error: any) {
+
+      console.error(
+        'Failed to load logged-in patient:',
+        error
+      );
+
+      if (mounted) {
+
+        setPatient(null);
+
+        const message =
+          error?.response?.data?.message ||
+          error?.response?.data?.title ||
+          'Failed to load your patient profile.';
+
+        toast.error(message);
+      }
+
+    } finally {
+
+      if (mounted) {
+        setPatientLoading(false);
+      }
+    }
+  }
+
+  loadLoggedInPatient();
+
+  return () => {
+    mounted = false;
+  };
+
+}, [user, authLoading]);
 
   /*
    * ==========================================================

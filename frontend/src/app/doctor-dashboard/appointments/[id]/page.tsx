@@ -204,10 +204,20 @@ export default function DoctorAppointmentDetails() {
             </p>
           </div>
 
+          {/* Create Medical Record */}
+
+          <Link
+            href={`/doctor-dashboard/medical-records/new?appointmentId=${appointment.id}&patientId=${appointment.patientId}&doctorId=${appointment.doctorId}&visitDate=${encodeURIComponent(appointment.appointmentDate)}`}
+            className="inline-flex items-center justify-center rounded-lg border border-primary bg-card px-5 py-3 text-sm font-semibold text-primary transition-colors hover:bg-primary/5"
+          >
+            Create Medical Record
+          </Link>
+
           {/* Create Prescription */}
+
           <Link
             href={`/doctor-dashboard/prescriptions/new?appointmentId=${appointment.id}&patientId=${appointment.patientId}&doctorId=${appointment.doctorId}`}
-            className="inline-flex items-center justify-center rounded-lg bg-primary px-5 py-3 text-sm font-semibold text-white hover:opacity-90 transition-opacity"
+            className="inline-flex items-center justify-center rounded-lg bg-primary px-5 py-3 text-sm font-semibold text-white transition-opacity hover:opacity-90"
           >
             Create Prescription
           </Link>

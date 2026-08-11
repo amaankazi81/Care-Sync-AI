@@ -5,7 +5,7 @@ import React, {
   useState,
 } from 'react';
 
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 
 import Sidebar from './Sidebar';
 import Topbar from './Topbar';
@@ -32,12 +32,21 @@ interface AppLayoutProps {
   }[];
 }
 
+/* =========================================================
+   DASHBOARD ROUTES
+========================================================= */
+
 const dashboardRoutes = {
   admin: '/admin-dashboard',
   doctor: '/doctor-dashboard',
   patient: '/patient-dashboard',
-  receptionist: '/receptionist-dashboard',
+  receptionist:
+    '/receptionist-dashboard',
 };
+
+/* =========================================================
+   APP LAYOUT
+========================================================= */
 
 export default function AppLayout({
   children,
@@ -45,6 +54,9 @@ export default function AppLayout({
   breadcrumbs,
 }: AppLayoutProps) {
   const router = useRouter();
+
+  const pathname =
+    usePathname();
 
   const [collapsed, setCollapsed] =
     useState(false);
@@ -55,79 +67,135 @@ export default function AppLayout({
   const [authorized, setAuthorized] =
     useState(false);
 
+  /* =========================================================
+     SESSION VERIFICATION
+  ========================================================= */
+
   useEffect(() => {
     let mounted = true;
 
     const verifySession = () => {
-      const token = getAccessToken();
+      const token =
+        getAccessToken();
 
       const storedRole =
         getRole()?.toLowerCase();
 
       /*
-       * No access token
+       * ------------------------------------------------------
+       * NO TOKEN
+       * ------------------------------------------------------
        */
+
       if (!token) {
+        if (mounted) {
+          setAuthorized(false);
+        }
+
         logout();
+
         router.replace('/login');
+
         return;
       }
 
       /*
-       * Expired access token
+       * ------------------------------------------------------
+       * EXPIRED TOKEN
+       * ------------------------------------------------------
        */
+
       if (isTokenExpired()) {
+        if (mounted) {
+          setAuthorized(false);
+        }
+
         logout();
+
         router.replace('/login');
+
         return;
       }
 
       /*
-       * Missing role
+       * ------------------------------------------------------
+       * MISSING ROLE
+       * ------------------------------------------------------
        */
+
       if (!storedRole) {
+        if (mounted) {
+          setAuthorized(false);
+        }
+
         logout();
+
         router.replace('/login');
+
         return;
       }
 
       /*
-       * Invalid role
+       * ------------------------------------------------------
+       * INVALID ROLE
+       * ------------------------------------------------------
        */
+
       if (
         ![
           'admin',
           'doctor',
           'patient',
           'receptionist',
-        ].includes(storedRole)
+        ].includes(
+          storedRole
+        )
       ) {
+        if (mounted) {
+          setAuthorized(false);
+        }
+
         logout();
+
         router.replace('/login');
+
         return;
       }
 
       /*
-       * Role mismatch.
-       *
-       * This protects dashboards from users entering
-       * another role's dashboard manually.
+       * ------------------------------------------------------
+       * ROLE MISMATCH
+       * ------------------------------------------------------
        */
-      if (storedRole !== role) {
+
+      if (
+        storedRole !== role
+      ) {
         const redirect =
           dashboardRoutes[
             storedRole as keyof typeof dashboardRoutes
           ];
 
         if (redirect) {
-          router.replace(redirect);
+          router.replace(
+            redirect
+          );
         } else {
           logout();
-          router.replace('/login');
+
+          router.replace(
+            '/login'
+          );
         }
 
         return;
       }
+
+      /*
+       * ------------------------------------------------------
+       * AUTHORIZED
+       * ------------------------------------------------------
+       */
 
       if (mounted) {
         setAuthorized(true);
@@ -139,20 +207,120 @@ export default function AppLayout({
     return () => {
       mounted = false;
     };
+  }, [
+    role,
+    router,
+    pathname,
+  ]);
+
+  /* =========================================================
+     AUTH CHANGE LISTENER
+  ========================================================= */
+
+  useEffect(() => {
+    const handleAuthChange =
+      () => {
+        /*
+         * When login/logout happens, immediately
+         * verify the session again.
+         */
+
+        setAuthorized(false);
+
+        verifyCurrentSession();
+      };
+
+    const verifyCurrentSession =
+      () => {
+        const token =
+          getAccessToken();
+
+        const storedRole =
+          getRole()?.toLowerCase();
+
+        if (
+          !token ||
+          isTokenExpired()
+        ) {
+          router.replace(
+            '/login'
+          );
+
+          return;
+        }
+
+        if (
+          !storedRole
+        ) {
+          router.replace(
+            '/login'
+          );
+
+          return;
+        }
+
+        if (
+          storedRole !== role
+        ) {
+          const redirect =
+            dashboardRoutes[
+              storedRole as keyof typeof dashboardRoutes
+            ];
+
+          if (redirect) {
+            router.replace(
+              redirect
+            );
+          } else {
+            logout();
+
+            router.replace(
+              '/login'
+            );
+          }
+
+          return;
+        }
+
+        setAuthorized(true);
+      };
+
+    window.addEventListener(
+      'auth-change',
+      handleAuthChange
+    );
+
+    return () => {
+      window.removeEventListener(
+        'auth-change',
+        handleAuthChange
+      );
+    };
   }, [role, router]);
 
-  /*
-   * Keep the screen hidden while authentication
-   * is being verified.
-   */
+  /* =========================================================
+     CLOSE MOBILE SIDEBAR AFTER NAVIGATION
+  ========================================================= */
+
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [pathname]);
+
+  /* =========================================================
+     LOADING / AUTH CHECK
+  ========================================================= */
+
   if (!authorized) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="text-center">
+
           <div
             className="
-              h-10 w-10
-              mx-auto mb-4
+              h-10
+              w-10
+              mx-auto
+              mb-4
               animate-spin
               rounded-full
               border-4
@@ -164,34 +332,43 @@ export default function AppLayout({
           <p className="text-muted-foreground font-medium">
             Verifying your session...
           </p>
+
         </div>
       </div>
     );
   }
 
+  /* =========================================================
+     MAIN LAYOUT
+  ========================================================= */
+
   return (
     <div className="min-h-screen bg-background">
-      {/* =================================================
+
+      {/* =====================================================
           MOBILE OVERLAY
-      ================================================= */}
+      ===================================================== */}
 
       {mobileOpen && (
         <div
           className="
-            fixed inset-0
+            fixed
+            inset-0
             bg-black/40
             z-30
             lg:hidden
           "
           onClick={() =>
-            setMobileOpen(false)
+            setMobileOpen(
+              false
+            )
           }
         />
       )}
 
-      {/* =================================================
+      {/* =====================================================
           SIDEBAR
-      ================================================= */}
+      ===================================================== */}
 
       <div
         className={`
@@ -205,33 +382,41 @@ export default function AppLayout({
       >
         <Sidebar
           role={role}
-          collapsed={collapsed}
+          collapsed={
+            collapsed
+          }
           onToggle={() =>
             setCollapsed(
-              !collapsed
+              (previous) =>
+                !previous
             )
           }
         />
       </div>
 
-      {/* =================================================
+      {/* =====================================================
           TOPBAR
-      ================================================= */}
+      ===================================================== */}
 
       <Topbar
         role={role}
-        sidebarCollapsed={collapsed}
+        sidebarCollapsed={
+          collapsed
+        }
         onMobileMenuToggle={() =>
           setMobileOpen(
-            !mobileOpen
+            (previous) =>
+              !previous
           )
         }
-        mobileMenuOpen={mobileOpen}
+        mobileMenuOpen={
+          mobileOpen
+        }
       />
 
-      {/* =================================================
+      {/* =====================================================
           MAIN CONTENT
-      ================================================= */}
+      ===================================================== */}
 
       <main
         className="
@@ -240,9 +425,10 @@ export default function AppLayout({
           content-transition
         "
         style={{
-          marginLeft: collapsed
-            ? '68px'
-            : '260px',
+          marginLeft:
+            collapsed
+              ? '68px'
+              : '260px',
         }}
       >
         <div
@@ -256,12 +442,14 @@ export default function AppLayout({
             mx-auto
           "
         >
+
           {/* =================================================
               BREADCRUMBS
           ================================================= */}
 
           {breadcrumbs &&
-            breadcrumbs.length > 0 && (
+            breadcrumbs.length >
+              0 && (
               <nav
                 className="
                   flex
@@ -280,7 +468,9 @@ export default function AppLayout({
                     <React.Fragment
                       key={`${crumb.label}-${index}`}
                     >
-                      {index > 0 && (
+
+                      {index >
+                        0 && (
                         <span className="text-border">
                           /
                         </span>
@@ -288,13 +478,17 @@ export default function AppLayout({
 
                       {crumb.href ? (
                         <a
-                          href={crumb.href}
+                          href={
+                            crumb.href
+                          }
                           className="
                             hover:text-primary
                             transition-colors
                           "
                         >
-                          {crumb.label}
+                          {
+                            crumb.label
+                          }
                         </a>
                       ) : (
                         <span
@@ -306,9 +500,12 @@ export default function AppLayout({
                               : ''
                           }
                         >
-                          {crumb.label}
+                          {
+                            crumb.label
+                          }
                         </span>
                       )}
+
                     </React.Fragment>
                   )
                 )}
@@ -316,6 +513,7 @@ export default function AppLayout({
             )}
 
           {children}
+
         </div>
       </main>
     </div>

@@ -25,4 +25,5 @@ public class UserProfileResponse {
 
     private String role;
 
+    private String patientId;
 }

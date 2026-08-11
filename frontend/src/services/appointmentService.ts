@@ -96,15 +96,19 @@ const appointmentService = {
   //---------------------------------------
 
   async getAppointmentsByPatientId(
-    patientId: string
+  patientId: string
   ): Promise<Appointment[]> {
 
-    const response =
-      await dotnetApi.get<AppointmentApiResponse>(
-        `/patient/appointments/${patientId}`
-      );
+  if (!patientId) {
+    throw new Error('Patient ID is required.');
+  }
 
-    return response.data.data;
+  const response =
+    await dotnetApi.get<AppointmentApiResponse>(
+      `/appointments/patient/${patientId}`
+    );
+
+  return response.data.data || [];
   },
 
   //---------------------------------------

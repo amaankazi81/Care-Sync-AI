@@ -1,207 +1,346 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, {
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
+
 import StatusBadge from '@/components/ui/StatusBadge';
-import { Search, ChevronUp, ChevronDown, Eye, Edit2, Trash2, Filter } from 'lucide-react';
+
+import {
+  Search,
+  ChevronUp,
+  ChevronDown,
+  Eye,
+  RefreshCw,
+} from 'lucide-react';
+
 import { toast } from 'sonner';
 
-type AppointmentStatus = 'BOOKED' | 'CONFIRMED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
+import dotnetApi from '@/lib/dotnetApi';
+
+type AppointmentStatus =
+  | 'BOOKED'
+  | 'CONFIRMED'
+  | 'IN_PROGRESS'
+  | 'COMPLETED'
+  | 'CANCELLED';
+
+interface BackendAppointment {
+  appointmentId: string;
+  patientName: string;
+  doctorName: string;
+  appointmentDate: string;
+  status: AppointmentStatus | string;
+}
+
+interface ApiResponse<T> {
+  success: boolean;
+  message: string;
+  data: T;
+}
 
 interface Appointment {
   id: string;
   aptNo: string;
   patient: string;
-  patientAge: number;
   doctor: string;
-  department: string;
   date: string;
-  time: string;
-  type: string;
   status: AppointmentStatus;
 }
 
-const appointments: Appointment[] = [
-  {
-    id: 'apt-001',
-    aptNo: 'APT-0891',
-    patient: 'Sarah Chen',
-    patientAge: 34,
-    doctor: 'Dr. Marcus Webb',
-    department: 'Cardiology',
-    date: 'Jul 26, 2026',
-    time: '09:00 AM',
-    type: 'Consultation',
-    status: 'COMPLETED',
-  },
-  {
-    id: 'apt-002',
-    aptNo: 'APT-0892',
-    patient: 'Raj Patel',
-    patientAge: 52,
-    doctor: 'Dr. Aisha Okonkwo',
-    department: 'Orthopedics',
-    date: 'Jul 26, 2026',
-    time: '09:30 AM',
-    type: 'Follow-up',
-    status: 'COMPLETED',
-  },
-  {
-    id: 'apt-003',
-    aptNo: 'APT-0893',
-    patient: 'Emily Nguyen',
-    patientAge: 28,
-    doctor: 'Dr. Samuel Torres',
-    department: 'Neurology',
-    date: 'Jul 26, 2026',
-    time: '10:00 AM',
-    type: 'Consultation',
-    status: 'IN_PROGRESS',
-  },
-  {
-    id: 'apt-004',
-    aptNo: 'APT-0894',
-    patient: 'David Kowalski',
-    patientAge: 45,
-    doctor: 'Dr. Priya Mehta',
-    department: 'General Medicine',
-    date: 'Jul 26, 2026',
-    time: '10:30 AM',
-    type: 'Routine Checkup',
-    status: 'CONFIRMED',
-  },
-  {
-    id: 'apt-005',
-    aptNo: 'APT-0895',
-    patient: 'Fatima Al-Hassan',
-    patientAge: 61,
-    doctor: 'Dr. Marcus Webb',
-    department: 'Cardiology',
-    date: 'Jul 26, 2026',
-    time: '11:00 AM',
-    type: 'Post-Op Review',
-    status: 'BOOKED',
-  },
-  {
-    id: 'apt-006',
-    aptNo: 'APT-0896',
-    patient: 'James Oduya',
-    patientAge: 39,
-    doctor: 'Dr. Lisa Brennan',
-    department: 'Pediatrics',
-    date: 'Jul 26, 2026',
-    time: '11:30 AM',
-    type: 'Vaccination',
-    status: 'BOOKED',
-  },
-  {
-    id: 'apt-007',
-    aptNo: 'APT-0897',
-    patient: 'Mei Lin Wang',
-    patientAge: 7,
-    doctor: 'Dr. Lisa Brennan',
-    department: 'Pediatrics',
-    date: 'Jul 26, 2026',
-    time: '12:00 PM',
-    type: 'Checkup',
-    status: 'CANCELLED',
-  },
-  {
-    id: 'apt-008',
-    aptNo: 'APT-0898',
-    patient: 'Carlos Rivera',
-    patientAge: 58,
-    doctor: 'Dr. Aisha Okonkwo',
-    department: 'Orthopedics',
-    date: 'Jul 26, 2026',
-    time: '02:00 PM',
-    type: 'Surgery Prep',
-    status: 'CONFIRMED',
-  },
-  {
-    id: 'apt-009',
-    aptNo: 'APT-0899',
-    patient: 'Nadia Petrov',
-    patientAge: 42,
-    doctor: 'Dr. Samuel Torres',
-    department: 'Neurology',
-    date: 'Jul 26, 2026',
-    time: '02:30 PM',
-    type: 'MRI Review',
-    status: 'BOOKED',
-  },
-  {
-    id: 'apt-010',
-    aptNo: 'APT-0900',
-    patient: 'Thomas Adeyemi',
-    patientAge: 67,
-    doctor: 'Dr. Priya Mehta',
-    department: 'Oncology',
-    date: 'Jul 26, 2026',
-    time: '03:00 PM',
-    type: 'Chemotherapy',
-    status: 'CONFIRMED',
-  },
-];
+type SortKey =
+  | 'aptNo'
+  | 'patient'
+  | 'doctor'
+  | 'date'
+  | 'status';
 
-type SortKey = keyof Appointment;
+function getStatus(
+  status: string
+): AppointmentStatus {
+  const normalized =
+    status?.toUpperCase();
+
+  if (
+    normalized === 'BOOKED' ||
+    normalized === 'CONFIRMED' ||
+    normalized === 'IN_PROGRESS' ||
+    normalized === 'COMPLETED' ||
+    normalized === 'CANCELLED'
+  ) {
+    return normalized;
+  }
+
+  return 'BOOKED';
+}
+
+function formatDate(
+  dateString: string
+) {
+  if (!dateString) {
+    return '-';
+  }
+
+  const date = new Date(dateString);
+
+  if (Number.isNaN(date.getTime())) {
+    return dateString;
+  }
+
+  return date.toLocaleDateString(
+    'en-IN',
+    {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+    }
+  );
+}
 
 export default function AdminAppointmentsTable() {
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('ALL');
-  const [sortKey, setSortKey] = useState<SortKey>('aptNo');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
-  const [page, setPage] = useState(1);
-  const [deleteId, setDeleteId] = useState<string | null>(null);
-  const perPage = 8;
+  const [appointments, setAppointments] =
+    useState<Appointment[]>([]);
 
-  const filtered = useMemo(() => {
-    let rows = [...appointments];
-    if (search) {
-      const q = search.toLowerCase();
-      rows = rows.filter(
-        (r) =>
-          r.patient.toLowerCase().includes(q) ||
-          r.doctor.toLowerCase().includes(q) ||
-          r.aptNo.toLowerCase().includes(q) ||
-          r.department.toLowerCase().includes(q)
+  const [loading, setLoading] =
+    useState(true);
+
+  const [error, setError] =
+    useState(false);
+
+  const [search, setSearch] =
+    useState('');
+
+  const [statusFilter, setStatusFilter] =
+    useState('ALL');
+
+  const [sortKey, setSortKey] =
+    useState<SortKey>('date');
+
+  const [sortDir, setSortDir] =
+    useState<'asc' | 'desc'>('desc');
+
+  const [page, setPage] =
+    useState(1);
+
+  const perPage = 5;
+
+  const fetchAppointments =
+    async () => {
+      try {
+        setLoading(true);
+        setError(false);
+
+        const response =
+          await dotnetApi.get<
+            ApiResponse<
+              BackendAppointment[]
+            >
+          >(
+            '/dashboard/recent-appointments'
+          );
+
+        const backendData =
+          response.data?.data ?? [];
+
+        const mapped =
+          backendData.map(
+            (item, index) => ({
+              id:
+                item.appointmentId ??
+                `appointment-${index}`,
+
+              aptNo:
+                `APT-${item.appointmentId
+                  ?.replaceAll('-', '')
+                  .slice(0, 12)
+                  .toUpperCase() ??
+                  String(index + 1)}`,
+
+              patient:
+                item.patientName ??
+                'Unknown Patient',
+
+              doctor:
+                item.doctorName ??
+                'Unknown Doctor',
+
+              date:
+                item.appointmentDate ??
+                '',
+
+              status:
+                getStatus(
+                  item.status
+                ),
+            })
+          );
+
+        setAppointments(mapped);
+      } catch (err) {
+        console.error(
+          'Recent appointments error:',
+          err
+        );
+
+        setError(true);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+  useEffect(() => {
+    fetchAppointments();
+  }, []);
+
+  const filtered =
+    useMemo(() => {
+      let rows = [
+        ...appointments,
+      ];
+
+      const query =
+        search
+          .trim()
+          .toLowerCase();
+
+      if (query) {
+        rows =
+          rows.filter(
+            (appointment) =>
+              appointment.patient
+                .toLowerCase()
+                .includes(query) ||
+              appointment.doctor
+                .toLowerCase()
+                .includes(query) ||
+              appointment.aptNo
+                .toLowerCase()
+                .includes(query)
+          );
+      }
+
+      if (
+        statusFilter !== 'ALL'
+      ) {
+        rows =
+          rows.filter(
+            (appointment) =>
+              appointment.status ===
+              statusFilter
+          );
+      }
+
+      rows.sort(
+        (a, b) => {
+          let av =
+            a[sortKey];
+
+          let bv =
+            b[sortKey];
+
+          if (
+            sortKey === 'date'
+          ) {
+            av =
+              new Date(
+                av
+              ).getTime() as any;
+
+            bv =
+              new Date(
+                bv
+              ).getTime() as any;
+          }
+
+          const comparison =
+            String(av).localeCompare(
+              String(bv)
+            );
+
+          return sortDir === 'asc'
+            ? comparison
+            : -comparison;
+        }
       );
-    }
-    if (statusFilter !== 'ALL') {
-      rows = rows.filter((r) => r.status === statusFilter);
-    }
-    rows.sort((a, b) => {
-      const av = a[sortKey] as string;
-      const bv = b[sortKey] as string;
-      return sortDir === 'asc' ? av.localeCompare(String(bv)) : String(bv).localeCompare(av);
-    });
-    return rows;
-  }, [search, statusFilter, sortKey, sortDir]);
 
-  const totalPages = Math.ceil(filtered.length / perPage);
-  const paginated = filtered.slice((page - 1) * perPage, page * perPage);
+      return rows;
+    }, [
+      appointments,
+      search,
+      statusFilter,
+      sortKey,
+      sortDir,
+    ]);
 
-  const handleSort = (key: SortKey) => {
-    if (sortKey === key) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
-    else {
+  const totalPages =
+    Math.max(
+      1,
+      Math.ceil(
+        filtered.length /
+          perPage
+      )
+    );
+
+  const paginated =
+    filtered.slice(
+      (page - 1) *
+        perPage,
+      page * perPage
+    );
+
+  const handleSort = (
+    key: SortKey
+  ) => {
+    if (
+      sortKey === key
+    ) {
+      setSortDir(
+        (current) =>
+          current === 'asc'
+            ? 'desc'
+            : 'asc'
+      );
+    } else {
       setSortKey(key);
       setSortDir('asc');
     }
   };
 
-  const handleDelete = (id: string) => {
-    setDeleteId(null);
-    toast.success('Appointment cancelled', { description: `Appointment ${id} has been removed.` });
-  };
+  const handleRefresh =
+    async () => {
+      await fetchAppointments();
 
-  const SortIcon = ({ col }: { col: SortKey }) => (
-    <span className="inline-flex flex-col ml-1">
+      toast.success(
+        'Appointments refreshed'
+      );
+    };
+
+  const SortIcon = ({
+    column,
+  }: {
+    column: SortKey;
+  }) => (
+    <span className="inline-flex flex-col ml-1 align-middle">
       <ChevronUp
-        size={10}
-        className={sortKey === col && sortDir === 'asc' ? 'text-primary' : 'text-border'}
+        size={9}
+        className={
+          sortKey === column &&
+          sortDir === 'asc'
+            ? 'text-primary'
+            : 'text-border'
+        }
       />
+
       <ChevronDown
-        size={10}
-        className={sortKey === col && sortDir === 'desc' ? 'text-primary' : 'text-border'}
+        size={9}
+        className={
+          sortKey === column &&
+          sortDir === 'desc'
+            ? 'text-primary'
+            : 'text-border'
+        }
       />
     </span>
   );
@@ -211,222 +350,387 @@ export default function AdminAppointmentsTable() {
       {/* Header */}
       <div className="px-5 py-4 border-b border-border flex flex-col sm:flex-row sm:items-center gap-3">
         <div>
-          <h3 className="text-sm font-600 text-foreground">Today&apos;s Appointments</h3>
+          <h3 className="text-sm font-600 text-foreground">
+            Recent Appointments
+          </h3>
+
           <p className="text-xs text-muted-foreground">
-            {filtered.length} of {appointments.length} total
+            {filtered.length} of{' '}
+            {appointments.length}{' '}
+            appointments
           </p>
         </div>
+
         <div className="flex items-center gap-2 sm:ml-auto">
           <div className="relative">
             <Search
               size={14}
-              className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none"
+              className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
             />
+
             <input
               type="text"
               placeholder="Search..."
               value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
+              onChange={(event) => {
+                setSearch(
+                  event.target.value
+                );
+
                 setPage(1);
               }}
               className="pl-8 pr-3 py-1.5 text-xs rounded-lg border border-border bg-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring w-40"
             />
           </div>
-          <div className="relative">
-            <Filter
+
+          <select
+            value={statusFilter}
+            onChange={(event) => {
+              setStatusFilter(
+                event.target.value
+              );
+
+              setPage(1);
+            }}
+            className="px-3 py-1.5 text-xs rounded-lg border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-ring cursor-pointer"
+          >
+            <option value="ALL">
+              All Status
+            </option>
+
+            <option value="BOOKED">
+              Booked
+            </option>
+
+            <option value="CONFIRMED">
+              Confirmed
+            </option>
+
+            <option value="IN_PROGRESS">
+              In Progress
+            </option>
+
+            <option value="COMPLETED">
+              Completed
+            </option>
+
+            <option value="CANCELLED">
+              Cancelled
+            </option>
+          </select>
+
+          <button
+            type="button"
+            title="Refresh appointments"
+            onClick={
+              handleRefresh
+            }
+            className="w-8 h-8 rounded-lg border border-border flex items-center justify-center text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+          >
+            <RefreshCw
               size={14}
-              className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none"
             />
-            <select
-              value={statusFilter}
-              onChange={(e) => {
-                setStatusFilter(e.target.value);
-                setPage(1);
-              }}
-              className="pl-8 pr-3 py-1.5 text-xs rounded-lg border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-ring appearance-none cursor-pointer"
-            >
-              <option value="ALL">All Status</option>
-              <option value="BOOKED">Booked</option>
-              <option value="CONFIRMED">Confirmed</option>
-              <option value="IN_PROGRESS">In Progress</option>
-              <option value="COMPLETED">Completed</option>
-              <option value="CANCELLED">Cancelled</option>
-            </select>
-          </div>
-        </div>
-      </div>
-
-      {/* Table */}
-      <div className="overflow-x-auto scrollbar-thin">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border bg-muted/30">
-              {[
-                { key: 'aptNo' as SortKey, label: 'Apt #' },
-                { key: 'patient' as SortKey, label: 'Patient' },
-                { key: 'doctor' as SortKey, label: 'Doctor' },
-                { key: 'department' as SortKey, label: 'Department' },
-                { key: 'time' as SortKey, label: 'Time' },
-                { key: 'type' as SortKey, label: 'Type' },
-                { key: 'status' as SortKey, label: 'Status' },
-              ].map((col) => (
-                <th
-                  key={`th-${col.key}`}
-                  onClick={() => handleSort(col.key)}
-                  className="px-4 py-3 text-left text-xs font-600 uppercase tracking-wider text-muted-foreground cursor-pointer hover:text-foreground select-none whitespace-nowrap"
-                >
-                  {col.label}
-                  <SortIcon col={col.key} />
-                </th>
-              ))}
-              <th className="px-4 py-3 text-left text-xs font-600 uppercase tracking-wider text-muted-foreground">
-                Actions
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {paginated.length === 0 ? (
-              <tr>
-                <td colSpan={8} className="px-4 py-12 text-center">
-                  <p className="text-sm font-500 text-muted-foreground">No appointments found</p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Try adjusting your search or filter
-                  </p>
-                </td>
-              </tr>
-            ) : (
-              paginated.map((apt) => (
-                <tr
-                  key={apt.id}
-                  className="border-b border-border last:border-0 row-hover transition-colors"
-                >
-                  <td className="px-4 py-3">
-                    <span className="text-xs font-600 text-primary tabular-nums">{apt.aptNo}</span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div>
-                      <p className="text-sm font-500 text-foreground whitespace-nowrap">
-                        {apt.patient}
-                      </p>
-                      <p className="text-xs text-muted-foreground">Age {apt.patientAge}</p>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <p className="text-sm text-foreground whitespace-nowrap">{apt.doctor}</p>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-secondary text-primary text-xs font-500 whitespace-nowrap">
-                      {apt.department}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className="text-sm text-foreground tabular-nums whitespace-nowrap">
-                      {apt.time}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className="text-xs text-muted-foreground whitespace-nowrap">
-                      {apt.type}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <StatusBadge status={apt.status} size="sm" />
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-1">
-                      <button
-                        title="View appointment details"
-                        className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
-                        onClick={() => toast.info(`Viewing ${apt.aptNo}`)}
-                      >
-                        <Eye size={14} />
-                      </button>
-                      <button
-                        title="Edit appointment"
-                        className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-accent hover:bg-accent/10 transition-colors"
-                        onClick={() => toast.info(`Editing ${apt.aptNo}`)}
-                      >
-                        <Edit2 size={14} />
-                      </button>
-                      <button
-                        title="Cancel appointment — this cannot be undone"
-                        className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-negative hover:bg-negative-bg transition-colors"
-                        onClick={() => setDeleteId(apt.id)}
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Pagination */}
-      <div className="px-5 py-3 border-t border-border flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <p className="text-xs text-muted-foreground">
-          Showing {Math.min((page - 1) * perPage + 1, filtered.length)}–
-          {Math.min(page * perPage, filtered.length)} of {filtered.length}
-        </p>
-        <div className="flex items-center gap-1">
-          <button
-            disabled={page === 1}
-            onClick={() => setPage((p) => p - 1)}
-            className="px-3 py-1.5 text-xs rounded-lg border border-border text-muted-foreground hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-          >
-            Previous
-          </button>
-          {Array.from({ length: totalPages }).map((_, i) => (
-            <button
-              key={`page-${i + 1}`}
-              onClick={() => setPage(i + 1)}
-              className={`w-7 h-7 text-xs rounded-lg border transition-colors ${
-                page === i + 1
-                  ? 'bg-primary text-primary-foreground border-primary'
-                  : 'border-border text-muted-foreground hover:bg-muted'
-              }`}
-            >
-              {i + 1}
-            </button>
-          ))}
-          <button
-            disabled={page === totalPages || totalPages === 0}
-            onClick={() => setPage((p) => p + 1)}
-            className="px-3 py-1.5 text-xs rounded-lg border border-border text-muted-foreground hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-          >
-            Next
           </button>
         </div>
       </div>
 
-      {/* Delete confirmation modal */}
-      {deleteId && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div className="bg-card rounded-xl border border-border shadow-card-lg p-6 w-full max-w-sm fade-in">
-            <h4 className="text-base font-600 text-foreground mb-2">Cancel Appointment?</h4>
-            <p className="text-sm text-muted-foreground mb-5">
-              This will cancel the appointment and notify the patient. This action cannot be undone.
-            </p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setDeleteId(null)}
-                className="flex-1 px-4 py-2 rounded-lg border border-border text-sm font-500 text-muted-foreground hover:bg-muted transition-colors"
-              >
-                Keep Appointment
-              </button>
-              <button
-                onClick={() => handleDelete(deleteId)}
-                className="flex-1 px-4 py-2 rounded-lg bg-negative text-white text-sm font-600 hover:opacity-90 transition-all btn-press"
-              >
-                Cancel Appointment
-              </button>
-            </div>
+      {/* Loading */}
+      {loading && (
+        <div className="px-5 py-12 text-center">
+          <div className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+            <RefreshCw
+              size={16}
+              className="animate-spin"
+            />
+
+            Loading appointments...
           </div>
         </div>
       )}
+
+      {/* Error */}
+      {!loading && error && (
+        <div className="px-5 py-12 text-center">
+          <p className="text-sm font-500 text-negative">
+            Unable to load recent
+            appointments.
+          </p>
+
+          <p className="text-xs text-muted-foreground mt-1">
+            Please make sure the
+            backend is running on
+            port 5036.
+          </p>
+
+          <button
+            type="button"
+            onClick={
+              fetchAppointments
+            }
+            className="mt-4 px-4 py-2 text-xs rounded-lg bg-primary text-primary-foreground hover:opacity-90"
+          >
+            Try Again
+          </button>
+        </div>
+      )}
+
+      {/* Table */}
+      {!loading &&
+        !error && (
+          <>
+            <div className="overflow-x-auto scrollbar-thin">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/30">
+                    <th
+                      onClick={() =>
+                        handleSort(
+                          'aptNo'
+                        )
+                      }
+                      className="px-4 py-3 text-left text-xs font-600 uppercase tracking-wider text-muted-foreground cursor-pointer whitespace-nowrap"
+                    >
+                      Appointment
+                      <SortIcon column="aptNo" />
+                    </th>
+
+                    <th
+                      onClick={() =>
+                        handleSort(
+                          'patient'
+                        )
+                      }
+                      className="px-4 py-3 text-left text-xs font-600 uppercase tracking-wider text-muted-foreground cursor-pointer whitespace-nowrap"
+                    >
+                      Patient
+                      <SortIcon column="patient" />
+                    </th>
+
+                    <th
+                      onClick={() =>
+                        handleSort(
+                          'doctor'
+                        )
+                      }
+                      className="px-4 py-3 text-left text-xs font-600 uppercase tracking-wider text-muted-foreground cursor-pointer whitespace-nowrap"
+                    >
+                      Doctor
+                      <SortIcon column="doctor" />
+                    </th>
+
+                    <th
+                      onClick={() =>
+                        handleSort(
+                          'date'
+                        )
+                      }
+                      className="px-4 py-3 text-left text-xs font-600 uppercase tracking-wider text-muted-foreground cursor-pointer whitespace-nowrap"
+                    >
+                      Date
+                      <SortIcon column="date" />
+                    </th>
+
+                    <th
+                      onClick={() =>
+                        handleSort(
+                          'status'
+                        )
+                      }
+                      className="px-4 py-3 text-left text-xs font-600 uppercase tracking-wider text-muted-foreground cursor-pointer whitespace-nowrap"
+                    >
+                      Status
+                      <SortIcon column="status" />
+                    </th>
+
+                    <th className="px-4 py-3 text-left text-xs font-600 uppercase tracking-wider text-muted-foreground">
+                      Action
+                    </th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {paginated.length ===
+                  0 ? (
+                    <tr>
+                      <td
+                        colSpan={6}
+                        className="px-4 py-12 text-center"
+                      >
+                        <p className="text-sm font-500 text-muted-foreground">
+                          No appointments
+                          found
+                        </p>
+
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Try changing
+                          your search
+                          or status
+                          filter.
+                        </p>
+                      </td>
+                    </tr>
+                  ) : (
+                    paginated.map(
+                      (appointment) => (
+                        <tr
+                          key={
+                            appointment.id
+                          }
+                          className="border-b border-border last:border-0 row-hover transition-colors"
+                        >
+                          <td className="px-4 py-3">
+                            <span className="text-xs font-600 text-primary tabular-nums">
+                              {
+                                appointment.aptNo
+                              }
+                            </span>
+                          </td>
+
+                          <td className="px-4 py-3">
+                            <p className="text-sm font-500 text-foreground whitespace-nowrap">
+                              {
+                                appointment.patient
+                              }
+                            </p>
+                          </td>
+
+                          <td className="px-4 py-3">
+                            <p className="text-sm text-foreground whitespace-nowrap">
+                              {
+                                appointment.doctor
+                              }
+                            </p>
+                          </td>
+
+                          <td className="px-4 py-3">
+                            <span className="text-sm text-foreground whitespace-nowrap">
+                              {formatDate(
+                                appointment.date
+                              )}
+                            </span>
+                          </td>
+
+                          <td className="px-4 py-3">
+                            <StatusBadge
+                              status={
+                                appointment.status
+                              }
+                              size="sm"
+                            />
+                          </td>
+
+                          <td className="px-4 py-3">
+                            <button
+                              type="button"
+                              title="View appointment"
+                              onClick={() =>
+                                toast.info(
+                                  `Appointment ${appointment.aptNo}`,
+                                  {
+                                    description: `${appointment.patient} with ${appointment.doctor}`,
+                                  }
+                                )
+                              }
+                              className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                            >
+                              <Eye
+                                size={14}
+                              />
+                            </button>
+                          </td>
+                        </tr>
+                      )
+                    )
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination */}
+            {filtered.length >
+              0 && (
+              <div className="px-5 py-3 border-t border-border flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <p className="text-xs text-muted-foreground">
+                  Showing{' '}
+                  {Math.min(
+                    (page - 1) *
+                      perPage +
+                      1,
+                    filtered.length
+                  )}
+                  –
+                  {Math.min(
+                    page * perPage,
+                    filtered.length
+                  )}{' '}
+                  of{' '}
+                  {
+                    filtered.length
+                  }
+                </p>
+
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    disabled={page === 1}
+                    onClick={() =>
+                      setPage(
+                        (current) =>
+                          current - 1
+                      )
+                    }
+                    className="px-3 py-1.5 text-xs rounded-lg border border-border text-muted-foreground hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    Previous
+                  </button>
+
+                  {Array.from({
+                    length: totalPages,
+                  }).map(
+                    (_, index) => (
+                      <button
+                        type="button"
+                        key={`page-${index + 1}`}
+                        onClick={() =>
+                          setPage(
+                            index + 1
+                          )
+                        }
+                        className={`w-7 h-7 text-xs rounded-lg border transition-colors ${
+                          page ===
+                          index + 1
+                            ? 'bg-primary text-primary-foreground border-primary'
+                            : 'border-border text-muted-foreground hover:bg-muted'
+                        }`}
+                      >
+                        {index + 1}
+                      </button>
+                    )
+                  )}
+
+                  <button
+                    type="button"
+                    disabled={
+                      page ===
+                        totalPages ||
+                      totalPages ===
+                        0
+                    }
+                    onClick={() =>
+                      setPage(
+                        (current) =>
+                          current + 1
+                      )
+                    }
+                    className="px-3 py-1.5 text-xs rounded-lg border border-border text-muted-foreground hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
     </div>
   );
 }

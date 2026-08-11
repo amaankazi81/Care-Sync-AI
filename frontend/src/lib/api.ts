@@ -10,7 +10,7 @@ const api = axios.create({
 
 /**
  * Request Interceptor
- * Adds JWT token automatically
+ * Adds JWT token automatically.
  */
 api.interceptors.request.use(
   (config) => {
@@ -29,7 +29,7 @@ api.interceptors.request.use(
 
 /**
  * Response Interceptor
- * Handles Unauthorized / Forbidden responses
+ * Handles Unauthorized / Forbidden responses.
  */
 api.interceptors.response.use(
   (response) => response,
@@ -38,26 +38,25 @@ api.interceptors.response.use(
     if (typeof window !== 'undefined') {
       const status = error?.response?.status;
 
-      if (status === 401 || status === 403) {
+      const publicRoutes = [
+        '/login',
+        '/register',
+        '/forgot-password',
+        '/reset-password',
+      ];
+
+      const currentPath = window.location.pathname;
+
+      const isPublicRoute = publicRoutes.some((route) =>
+        currentPath.startsWith(route)
+      );
+
+      if (
+        (status === 401 || status === 403) &&
+        !isPublicRoute
+      ) {
         logout();
-
-        const publicRoutes = [
-          '/login',
-          '/register',
-          '/forgot-password',
-          '/reset-password',
-        ];
-
-        const currentPath = window.location.pathname;
-
-        const isPublicRoute = publicRoutes.some((route) =>
-          currentPath.startsWith(route)
-        );
-
-        if (!isPublicRoute) {
-          logout();
-          window.location.href = '/login';
-        }
+        window.location.href = '/login';
       }
     }
 

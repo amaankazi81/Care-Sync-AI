@@ -51,7 +51,7 @@ export default function LoginPage() {
 
       switch (response.role) {
         case 'ADMIN':
-          router.push('/');
+          router.push('/admin-dashboard');
           break;
 
         case 'DOCTOR':
@@ -67,7 +67,8 @@ export default function LoginPage() {
           break;
 
         default:
-          router.push('/login');
+          setError('Invalid user role.');
+          break;
       }
     } catch (err: any) {
       setError(err.response?.data?.message ?? 'Invalid Username or Password');

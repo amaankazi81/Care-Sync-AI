@@ -15,11 +15,7 @@ export interface UserProfile {
 
   role: string;
 
-  /*
-   * Optional because some APIs may return the
-   * patient id directly while others may not.
-   */
-  patientId?: string;
+  patientId: string | null;
 }
 
 const userService = {
