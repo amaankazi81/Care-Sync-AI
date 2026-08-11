@@ -1,0 +1,34 @@
+# Build output
+bin/
+obj/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+
+# Rider
+.idea/
+
+# VS Code
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# ASP.NET local configuration / secrets
+appsettings.Development.json
+appsettings.Local.json
+appsettings.*.local.json
+
+# Real production/local settings
+appsettings.json
+
+# Environment files
+.env
+.env.*
+!.env.example
