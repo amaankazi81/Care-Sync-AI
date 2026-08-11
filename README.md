@@ -331,6 +331,321 @@ Restore dependencies:
 dotnet restore
 ```
 
+Run the backend:
+```bash
+dotnet run
+```
+
+ASP.NET Core API:
+```bash
+http://localhost:5036
+```
+
+---
+
+# 🤖 FastAPI AI Backend Setup
+
+Navigate to:
+```bash
+cd CareSync.AI
+```
+
+Create a virtual environment.
+
+Windows
+```bash
+python -m venv .venv
+.venv\Scripts\activate
+```
+
+Linux / macOS
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+Install dependencies:
+```bash
+pip install -r ../requirements.txt
+```
+
+If the AI backend requires environment variables, create:
+```bash
+CareSync.AI/.env
+```
+
+Never commit .env or API keys.
+
+Run FastAPI:
+```bash
+uvicorn main:app --reload
+```
+
+FastAPI:
+```bash
+http://127.0.0.1:8000
+```
+
+Swagger:
+```bash
+http://127.0.0.1:8000/docs
+```
+
+---
+
+# 🌐 Frontend Setup
+
+Navigate to:
+```bash
+cd frontend
+```
+
+Install dependencies:
+```bash
+npm install
+```
+
+If required, create:
+```bash
+frontend/.env.local
+```
+
+Configure the backend URLs according to your local setup.
+
+Run the frontend:
+```bash
+npm run dev -- -p 4028
+```
+
+Open:
+```bash
+http://localhost:4028
+```
+
+# ▶️ Complete Startup Order
+
+Start the services in separate terminals.
+
+1. MySQL
+
+Make sure MySQL is running and healthcare_db exists.
+
+2. Spring Boot
+```bash
+cd healthcare-backend
+mvn spring-boot:run
+```
+
+Port:
+```bash
+8080
+```
+
+3. ASP.NET Core
+```bash
+cd CareSync.BusinessAPI
+dotnet run
+```
+
+Port:
+```bash
+5036
+```
+
+4. FastAPI
+```bash
+cd CareSync.AI
+uvicorn main:app --reload
+```
+
+Port:
+```bash
+8000
+```
+
+5. Frontend
+```bash
+cd frontend
+npm install
+npm run dev -- -p 4028
+```
+
+Frontend:
+```bash
+http://localhost:4028
+```
+
+---
+
+# 🔗 Service URLs
+
+Service	URL
+
+Frontend	http://localhost:4028
+Spring Boot Backend	http://localhost:8080
+ASP.NET Business API	http://localhost:5036
+FastAPI AI Backend	http://127.0.0.1:8000
+FastAPI Swagger	http://127.0.0.1:8000/docs
+MySQL	localhost:3306
+
+---
+
+# 🔐 Security
+
+The repository does not contain local credentials or production secrets.
+
+The following files must remain local:
+```bash
+.env
+.env.local
+appsettings.json
+application.properties
+```
+
+Example configuration files are provided:
+```bash
+healthcare-backend/src/main/resources/application.properties.example
+CareSync.BusinessAPI/appsettings.example.json
+```
+
+Never commit:
+
+Database passwords
+JWT secrets
+Gmail passwords
+API keys
+Encryption keys
+Access tokens
+Private keys
+
+---
+
+# 🧪 API Testing
+
+The APIs can be tested using:
+
+- Postman
+- Browser
+- FastAPI Swagger UI
+
+FastAPI Swagger:
+```bash
+http://127.0.0.1:8000/docs
+```
+
+---
+
+# 🌿 Git Workflow
+
+The latest integrated development branch is:
+
+- ai-integration
+
+Before starting work:
+```bash
+git pull origin ai-integration
+```
+
+Create a feature branch:
+```bash
+git switch -c feature/your-feature-name
+```
+
+After making changes:
+```bash
+git status
+git add .
+git commit -m "Describe your changes"
+git push origin feature/your-feature-name
+```
+
+Create a Pull Request on GitHub when the feature is ready.
+
+# 🐛 Troubleshooting
+
+Frontend dependency issues
+Linux / macOS
+```bash
+rm -rf node_modules
+npm install
+```
+
+Windows PowerShell
+```bash
+Remove-Item -Recurse -Force node_modules
+npm install
+```
+
+Port already in use
+Linux
+```bash
+sudo lsof -i :8080
+```
+
+Windows
+```bash
+netstat -ano | findstr :8080
+MySQL connection issues
+```
+
+Verify:
+
+MySQL is running
+healthcare_db exists
+Username is correct
+Password is correct
+MySQL is running on port 3306
+
+📸 Screenshots
+
+Add screenshots of the application here.
+
+Recommended screenshots:
+
+Login Page
+Patient Dashboard
+Doctor Dashboard
+Receptionist Dashboard
+Admin Dashboard
+Appointment Booking
+Medical Records
+Billing
+AI Assistant
+AI Analytics
+
+---
+
+# 🔮 Future Scope
+
+- Cloud deployment
+- Mobile application
+- Advanced AI healthcare features
+- Real-time notifications
+- Video consultation
+- Online payment integration
+- Advanced healthcare analytics
+- Hospital and laboratory integration
+- Improved security and audit logging
+- 
+# 👨‍💻 Contributors
+
+**CareSync AI Development Team**
+
+- **Amaan Kazi**
+- **Nikhil Landge**
+- **Abhishek Tiwari**
+- **Abhishek Diwate**
+- **Pratham Mishra**
+- **Manoj Joshi**
+
+---
+
+# ❤️ CareSync AI
+
+Connecting Patients, Doctors, and Healthcare Management through Technology and AI.
+
+
+Your Suggestion is Welcomed!!
 
 
 
