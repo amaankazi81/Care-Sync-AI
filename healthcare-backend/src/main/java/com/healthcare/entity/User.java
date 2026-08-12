@@ -6,6 +6,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import lombok.*;
+//import java.util.UUID;
 
 @Entity
 @Table(
@@ -66,6 +67,9 @@ public class User extends BaseEntity {
     @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "role_id", nullable = false)
     private Role role;
+    
+    @Column(name = "business_patient_id")
+    private String businessPatientId;
     
     @OneToOne(mappedBy = "user", cascade = CascadeType.ALL)
     private PasswordResetToken passwordResetToken;

@@ -41,7 +41,6 @@ public class UserServiceImpl implements UserService {
 
     @Override
     public User findByUsername(String username) {
-
         return userRepository.findByUsername(username)
                 .orElseThrow(() ->
                         new ResourceNotFoundException("User not found"));
@@ -64,13 +63,14 @@ public class UserServiceImpl implements UserService {
                 .lastName(user.getLastName())
                 .phoneNumber(user.getPhoneNumber())
                 .role(user.getRole().getName().name())
+                .patientId(user.getBusinessPatientId())
                 .build();
     }
 
     @Override
-    public UserProfileResponse updateCurrentUserProfile(UpdateUserProfileRequest request) {
+    public UserProfileResponse updateCurrentUserProfile(
+            UpdateUserProfileRequest request) {
 
-        // Get logged-in user
         Authentication authentication =
                 SecurityContextHolder.getContext().getAuthentication();
 
@@ -78,15 +78,17 @@ public class UserServiceImpl implements UserService {
 
         User currentUser = findByUsername(username);
 
-        // Check if email already belongs to another user
         userRepository.findByEmail(request.getEmail())
                 .ifPresent(existingUser -> {
-                    if (!existingUser.getId().equals(currentUser.getId())) {
-                        throw new ResourceAlreadyExistsException("Email already exists");
+
+                    if (!existingUser.getId()
+                            .equals(currentUser.getId())) {
+
+                        throw new ResourceAlreadyExistsException(
+                                "Email already exists");
                     }
                 });
 
-        // Update allowed fields
         currentUser.setFirstName(request.getFirstName());
         currentUser.setLastName(request.getLastName());
         currentUser.setEmail(request.getEmail());
@@ -101,9 +103,10 @@ public class UserServiceImpl implements UserService {
                 .lastName(currentUser.getLastName())
                 .phoneNumber(currentUser.getPhoneNumber())
                 .role(currentUser.getRole().getName().name())
+                .patientId(currentUser.getBusinessPatientId())
                 .build();
     }
-    
+
     @Override
     public void changePassword(ChangePasswordRequest request) {
 
@@ -114,18 +117,25 @@ public class UserServiceImpl implements UserService {
 
         User user = findByUsername(username);
 
-        // Verify current password
-        if (!passwordEncoder.matches(request.getCurrentPassword(), user.getPassword())) {
-            throw new BadRequestException("Current password is incorrect");
+        if (!passwordEncoder.matches(
+                request.getCurrentPassword(),
+                user.getPassword())) {
+
+            throw new BadRequestException(
+                    "Current password is incorrect");
         }
 
-        // Prevent using the same password again
-        if (passwordEncoder.matches(request.getNewPassword(), user.getPassword())) {
-            throw new BadRequestException("New password cannot be same as current password");
+        if (passwordEncoder.matches(
+                request.getNewPassword(),
+                user.getPassword())) {
+
+            throw new BadRequestException(
+                    "New password cannot be same as current password");
         }
 
-        // Save new password
-        user.setPassword(passwordEncoder.encode(request.getNewPassword()));
+        user.setPassword(
+                passwordEncoder.encode(
+                        request.getNewPassword()));
 
         userRepository.save(user);
     }

@@ -1,0 +1,105 @@
+'use client';
+
+import React, {
+  useEffect,
+  useState,
+} from 'react';
+
+import AppLayout from '@/components/AppLayout';
+
+import AdminKPIGrid from '@/app/components/AdminKPIGrid';
+import AdminChartsRow from '@/app/components/AdminChartsRow';
+import AdminAppointmentsTable from '@/app/components/AdminAppointmentsTable';
+import AdminActivityFeed from '@/app/components/AdminActivityFeed';
+import AdminQuickActions from '@/app/components/AdminQuickActions';
+
+export default function AdminDashboardPage() {
+  const [
+    currentDate,
+    setCurrentDate,
+  ] = useState('');
+
+  const [
+    lastUpdated,
+    setLastUpdated,
+  ] = useState('');
+
+  useEffect(() => {
+    const now = new Date();
+
+    setCurrentDate(
+      now.toLocaleDateString(
+        'en-IN',
+        {
+          weekday: 'long',
+          month: 'long',
+          day: 'numeric',
+          year: 'numeric',
+        }
+      )
+    );
+
+    setLastUpdated(
+      now.toLocaleTimeString(
+        'en-IN',
+        {
+          hour: '2-digit',
+          minute: '2-digit',
+        }
+      ));
+  }, []);
+
+  return (
+    <AppLayout
+      role="admin"
+      breadcrumbs={[
+        {
+          label: 'Home',
+          href: '/admin-dashboard',
+        },
+        {
+          label: 'Admin Dashboard',
+        },
+      ]}
+    >
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">
+            Hospital Overview
+          </h1>
+
+          <p className="text-sm text-muted-foreground mt-1">
+            {currentDate ||
+              'Loading current date...'}
+
+            {' · '}
+
+            {lastUpdated
+              ? `Last updated at ${lastUpdated}`
+              : 'Loading...'}
+          </p>
+        </div>
+
+        <AdminQuickActions />
+      </div>
+
+      {/* KPI */}
+      <AdminKPIGrid />
+
+      {/* Charts */}
+      <AdminChartsRow />
+
+      {/* Bottom section */}
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mt-6">
+        <div className="xl:col-span-2">
+          <AdminAppointmentsTable />
+        </div>
+
+        <div className="xl:col-span-1">
+          <AdminActivityFeed />
+        </div>
+      </div>
+    </AppLayout>
+  );
+}
