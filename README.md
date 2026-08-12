@@ -200,7 +200,7 @@ mysql --version
 
 # 📥 Clone the Repository
 
-The latest integrated version is available on the ai-integration branch.
+The latest and final version is available on the main branch.
 
 ```bash
 git clone https://github.com/amaankazi81/Care-Sync-AI.git
